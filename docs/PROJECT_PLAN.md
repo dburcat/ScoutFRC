@@ -439,62 +439,86 @@ ROBOT_PERFORMANCE (1) ──── (M) MOVEMENT_TRACK
 
 ## 6. Phased Development Roadmap
 
-### Phase 1 — MVP: Detection, Tracking & Coordinate Mapping
-**Goal:** Produce reliable (x, y, timestamp) positional records for every robot in every match video.
+## Phase 1: Core MVP Foundation (12 Tiers)
+**Goal**: Build a working data collection and dashboard system WITHOUT computer vision. Focus on database, API, and UI.
 
-| Milestone | Description | Estimated Duration |
-|---|---|---|
-| 1.1 Data Ingestion | Implement video downloader (yt-dlp wrapper), S3 upload, and Celery job dispatch | 2 weeks |
-| 1.2 YOLOv8 Fine-Tuning | Collect 500–1,000 labelled FRC frames; fine-tune YOLOv8n on robot/bumper classes | 3 weeks |
-| 1.3 DeepSORT Integration | Integrate DeepSORT; implement track-to-team-number assignment via bumper-colour heuristic | 2 weeks |
-| 1.4 Perspective Transform | Build calibration UI (4-point field corner picker); implement homography per event | 1 week |
-| 1.5 Database Bootstrap | Deploy PostgreSQL schema (DDL from §4); implement Alembic migrations for all 7 tables | 1 week |
-| 1.6 CV → DB Writer | Write `MOVEMENT_TRACK` and basic `ROBOT_PERFORMANCE` rows after each processed match | 1 week |
-| 1.7 Basic API | FastAPI endpoints: `GET /events`, `GET /events/{id}/matches`, `GET /matches/{id}/robots` | 1 week |
-| **Phase 1 Total** | | **~11 weeks** |
+**Key Components**:
+- Tier 1: Database & ORM Setup (PostgreSQL, SQLAlchemy)
+- Tier 2: FastAPI Backend - Core CRUD endpoints
+- Tier 3: Authentication & Authorization (JWT, RBAC)
+- Tier 4: Blue Alliance API Integration
+- Tier 5: React Dashboard - Setup & Event View
+- Tier 6: React Dashboard - Team & Match Views
+- Tier 7: Alliance Builder & Scouting Form
+- Tier 8: Basic Analytics & Charts
+- Tier 9: API Integration - Scouting Endpoints
+- Tier 10: Comprehensive Testing & Documentation
+- Tier 11: Deployment & CI/CD Pipeline
+- Tier 12: Final Integration & Phase 1 Completion
 
-**Exit Criteria:**
-- Robot positions tracked at ≥ 10 fps with < 5% ID-switch rate across a 2:30 match.
-- Field coordinates within ± 0.3 m of ground truth for ≥ 90% of frames.
+**Output**: Production-ready MVP with data collection, dashboard, and basic analytics
 
----
-
-### Phase 2 — Analytics: Scoring Classification & Cycle Intelligence
-**Goal:** Produce per-robot scoring breakdowns and cycle time statistics.
-
-| Milestone | Description | Estimated Duration |
-|---|---|---|
-| 2.1 Event Classifier | Train lightweight CNN to classify scoring events from cropped robot ROIs; rules-based fallback | 3 weeks |
-| 2.2 Scoring Event Writer | Populate `SCORING_EVENT` table; link to correct `phase` based on match timestamp | 1 week |
-| 2.3 Phase Stat Calculator | Implement SQL + Python analytics for `PHASE_STAT` (success rates, cycle times) | 2 weeks |
-| 2.4 Heatmap Service | Build heatmap aggregation service; Redis cache; REST endpoint `GET /teams/{id}/heatmap` | 1 week |
-| 2.5 Alliance Fit Engine | Implement role classifier and gap-analysis algorithm from §5.4 | 2 weeks |
-| 2.6 Extended API | Add endpoints: scoring breakdowns, phase stats, alliance fit suggestions | 1 week |
-| **Phase 2 Total** | | **~10 weeks** |
-
-**Exit Criteria:**
-- Scoring event detection accuracy ≥ 85% F1 on a held-out match set.
-- Cycle times within ± 1 second of manually annotated ground truth.
+**Detailed Plan**: See `docs/PHASE_1_TIERED_DEVELOPMENT_PLAN.md`
 
 ---
 
-### Phase 3 — UX/UI: Dashboard, Robot Profiles & Alliance Builder
-**Goal:** Deliver a polished, usable dashboard for alliance captains and scouting leads.
+## Phase 2: Background Daemon System & Computer Vision (12 Tiers)
+**Goal**: Add automated data collection through background daemons and real-time video analysis with computer vision.
 
-| Milestone | Description | Estimated Duration |
-|---|---|---|
-| 3.1 Event Dashboard | React view: event selector, match schedule, processing status indicators | 2 weeks |
-| 3.2 Team List View | Sortable/filterable table of all teams; summary stats; role badges | 1 week |
-| 3.3 Robot Profile View | Per-team detail: scoring charts (Recharts), phase breakdown, field heatmap (D3 + Konva) | 3 weeks |
-| 3.4 Alliance Builder | Drag-and-drop 3-slot builder; real-time projected score; coverage gap visualisation | 3 weeks |
-| 3.5 Authentication & Multi-Tenancy | JWT login; team-scoped data isolation | 1 week |
-| 3.6 Export & Sharing | PDF/CSV export of scouting reports; shareable alliance links | 1 week |
-| 3.7 Mobile Responsive Polish | Ensure core views are usable on tablets at pit/field | 1 week |
-| **Phase 3 Total** | | **~12 weeks** |
+**Key Components**:
+- Tier 1: Celery & Redis Setup (Background task infrastructure)
+- Tier 2: Video Processing Pipeline (YOLOv8 + DeepSORT)
+- Tier 3: Robot Performance Analytics (Phase statistics)
+- Tier 4: Data Caching System (Redis caching)
+- Tier 5: Blue Alliance Continuous Sync
+- Tier 6: Report Generation & Distribution
+- Tier 7: Real-Time Dashboard Updates (WebSockets)
+- Tier 8: Field Heatmaps & Visualizations
+- Tier 9: Performance Prediction & Ranking (ML)
+- Tier 10: Mobile App / Progressive Web App
+- Tier 11: Advanced Analytics & ML
+- Tier 12: Testing, Documentation & Deployment
 
-**Exit Criteria:**
-- Event Dashboard to Alliance Builder flow completes in ≤ 4 user interactions.
-- Alliance projected score within ± 10% of actual final score for held-out elimination matches.
+**Output**: Production-ready system with automated video analysis, real-time updates, ML predictions, and mobile app
+
+**Detailed Plan**: See `docs/PHASE_2_TIERED_DEVELOPMENT_PLAN.md`
+
+---
+
+## Phase 3: Advanced Features & Ecosystem Expansion (12 Tiers)
+**Goal**: Expand ScoutFRC into a comprehensive FRC intelligence ecosystem with advanced features, integrations, and community capabilities.
+
+**⚠️ IMPORTANT**: Phase 3 should NOT be started until Phase 1 and Phase 2 are fully complete and working correctly.
+
+**Key Components**:
+- Tier 1: Multi-Event Management & Organization
+- Tier 2: AI Coach Assistant & Recommendations
+- Tier 3: Community Platform & Knowledge Sharing
+- Tier 4: Advanced Scouting Data Collection
+- Tier 5: Live Event Streaming & Commentary
+- Tier 6: Advanced Integration Ecosystem (Plugins, Webhooks)
+- Tier 7: Enterprise Features & White-Label
+- Tier 8: Mobile App Native Implementation (iOS/Android)
+- Tier 9: Predictive Analytics & Season Planning
+- Tier 10: Virtual/Augmented Reality Features
+- Tier 11: Sustainability & Analytics Dashboard
+- Tier 12: Governance, Compliance & Future-Proofing
+
+**Output**: Comprehensive FRC intelligence platform with community, enterprise features, and advanced analytics
+
+**Detailed Plan**: See `docs/PHASE_3_TIERED_DEVELOPMENT_PLAN.md`
+
+---
+
+## Phase Summary
+
+| Phase | Focus | Tiers | Status |
+|-------|-------|-------|--------|
+| 1 | Core MVP | 12 | In Planning |
+| 2 | Daemons & CV | 12 | In Planning |
+| 3 | Ecosystem | 12 | Planning Only - Do Not Start Yet |
+
+Each phase contains 12 detailed tiers with specific tasks, acceptance criteria, deliverables, and dependencies. Detailed documentation for each phase is available in the corresponding tiered development plan document.
 
 ---
 
