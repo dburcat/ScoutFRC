@@ -4,7 +4,7 @@
 
 ## Key Features (Planned)
 
-- 🗄️ **PostgreSQL** relational schema across 7 entities (EVENT → TEAM → MATCH → ROBOT_PERFORMANCE → …)
+- 🗄️ **PostgreSQL** relational schema — 11 entities across 3 phases (EVENT → TEAM → MATCH → ROBOT_PERFORMANCE → …) — see [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md)
 - ⚡ **FastAPI Backend** — CRUD endpoints, authentication, Blue Alliance API integration
 - 📊 **React Dashboard** — event view, team profiles, match data, and basic analytics
 - 🤝 **Alliance Builder** — drag-and-drop tool with projected scores and coverage-gap analysis
@@ -108,6 +108,7 @@ ScoutFRC is built across **3 phases**, each containing **12 tiers**. Complete ph
 | [`docs/PHASE_2_TIERED_DEVELOPMENT_PLAN.md`](docs/PHASE_2_TIERED_DEVELOPMENT_PLAN.md) | Phase 2 — 12 tiers: Background Daemons & Computer Vision |
 | [`docs/PHASE_3_TIERED_DEVELOPMENT_PLAN.md`](docs/PHASE_3_TIERED_DEVELOPMENT_PLAN.md) | Phase 3 — 12 tiers: Advanced Ecosystem Expansion (future planning only) |
 | [`docs/BACKGROUND_DAEMON_ARCHITECTURE.md`](docs/BACKGROUND_DAEMON_ARCHITECTURE.md) | Daemon system design — Celery, Redis, worker architecture |
+| [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md) | Complete database schema reference — all models, relationships, indexes, migrations, sample queries, and security/scalability notes |
 
 ## License
 
