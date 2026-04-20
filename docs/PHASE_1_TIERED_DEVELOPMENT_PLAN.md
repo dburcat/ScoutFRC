@@ -383,7 +383,7 @@ This document outlines the comprehensive development plan for **Phase 1 of Scout
 - `frontend/src/components/AllianceSelector.tsx`
 - `backend/app/routers/alliances.py`
 - `backend/app/routers/performances.py`
-- `backend/app/models/alliance.py` (if not in Tier 1)
+- `backend/alembic/versions/0003_add_alliance_fields.py` (if additional Alliance fields are needed)
 
 #### Dependencies
 
@@ -715,7 +715,7 @@ Tier 4 (TBA)  │        │
 
 **Parallel execution groups:**
 - **Group A:** Tier 3 + Tier 5 (both depend only on Tier 2)
-- **Group B:** Tier 4 + Tier 6 (can start simultaneously after Groups A)
+- **Group B:** Tier 4 + Tier 6 (can start simultaneously once ALL of Group A is complete — Tier 4 requires Tier 3 ✅, Tier 6 requires Tier 5 ✅)
 - **Group C:** Tier 7 + Tier 8 (can start simultaneously after Group B)
 
 ---
