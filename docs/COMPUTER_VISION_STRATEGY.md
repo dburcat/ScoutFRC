@@ -1,1080 +1,1626 @@
-# Computer Vision Strategy
+# ScouterFRC — Computer Vision Strategy
 
-## ScouterFRC — Phase 2 Computer Vision Implementation Guide
-
----
-
-## 1. Overview & Goals
-
-### Purpose
-
-The ScouterFRC computer vision system automatically analyzes FRC match videos to detect, track, and identify all six robots on the field. Raw pixel coordinates are converted to field-space coordinates and stored as `MovementTrack` records, enabling downstream analytics (heatmaps, phase statistics, performance metrics) without manual data entry.
-
-### Key Challenges in FRC Tracking
-
-| Challenge | Description |
-|-----------|-------------|
-| Visual similarity | Robots may look alike across different teams |
-| Occlusions | Robots frequently block each other, especially near scoring zones |
-| Configuration changes | Mechanisms deploy mid-match, changing a robot's silhouette |
-| Team number visibility | Numbers may be small, angled, or obstructed |
-| Camera angle | Single fixed overhead or side-angle camera limits 3-D information |
-| Lighting variability | Field lighting differs between venues and changes during matches |
-
-### Design Philosophy
-
-- **Robust multi-method identification** — no single method is relied upon exclusively; four complementary techniques are fused
-- **Graceful degradation** — if the best method fails, the system falls back rather than producing wrong data
-- **Explainability** — every identification decision is logged with method and confidence score
-- **Human-in-the-loop** — uncertain detections are flagged for manual review rather than silently producing bad data
-
-### Performance Targets
-
-| Metric | Target |
-|--------|--------|
-| Robot detection accuracy | > 95 % (mAP@0.5) |
-| Tracking ID consistency | > 90 % over a full match |
-| Team identification accuracy | > 95 % across all methods |
-| Frame processing speed | ≥ 15 FPS (real-time capable) |
-| Per-frame latency | < 100 ms |
-| Memory per worker process | < 2 GB |
+> **Version:** 1.0  
+> **Status:** Planning  
+> **Scope:** End-to-end robot tracking strategy including detection, identification, re-identification under configuration changes, and team number recovery
 
 ---
 
-## 2. System Architecture
+## Table of Contents
 
-### High-Level Pipeline Diagram
+1. [Overview](#1-overview)
+2. [Pipeline Architecture](#2-pipeline-architecture)
+3. [YOLOv8 Detection](#3-yolov8-detection)
+4. [DeepSORT Multi-Object Tracking](#4-deepsort-multi-object-tracking)
+5. [Team Number Identification via OCR](#5-team-number-identification-via-ocr)
+6. [Color-Based Robot Identification](#6-color-based-robot-identification)
+7. [Robot Re-Identification After Configuration Changes](#7-robot-re-identification-after-configuration-changes)
+8. [Team Number Recovery After Rotation / Occlusion](#8-team-number-recovery-after-rotation--occlusion)
+9. [Kalman Filter Prediction & Track Continuity](#9-kalman-filter-prediction--track-continuity)
+10. [Perspective Transform & Field Coordinate Mapping](#10-perspective-transform--field-coordinate-mapping)
+11. [MovementTrack Data Model](#11-movementtrack-data-model)
+12. [Video Processor Implementation](#12-video-processor-implementation)
+13. [Celery Task Integration](#13-celery-task-integration)
+14. [Confidence Scoring & Flagging for Review](#14-confidence-scoring--flagging-for-review)
+15. [Manual Review Dashboard](#15-manual-review-dashboard)
+16. [Accuracy Metrics & Validation](#16-accuracy-metrics--validation)
+17. [Model Training & Fine-Tuning](#17-model-training--fine-tuning)
+18. [GPU Infrastructure](#18-gpu-infrastructure)
+19. [Performance Benchmarks](#19-performance-benchmarks)
+20. [Testing Strategy](#20-testing-strategy)
 
-```
-┌──────────────────────────────────────────────────────┐
-│                    Input Video                       │
-└───────────────────────┬──────────────────────────────┘
-                        ▼
-┌──────────────────────────────────────────────────────┐
-│              Frame Extraction (OpenCV)               │
-│  Configurable sample rate (e.g., every frame or      │
-│  every Nth frame for faster offline processing)      │
-└───────────────────────┬──────────────────────────────┘
-                        ▼
-┌──────────────────────────────────────────────────────┐
-│            Frame Preprocessing                       │
-│  Resize → normalize → color-space conversion         │
-└───────────────────────┬──────────────────────────────┘
-                        ▼
-┌──────────────────────────────────────────────────────┐
-│           YOLOv8 Detection                           │
-│  Output: robot bounding boxes + confidence scores    │
-└───────────────────────┬──────────────────────────────┘
-                        ▼
-┌──────────────────────────────────────────────────────┐
-│           DeepSORT Tracker Update                    │
-│  Output: track IDs assigned to each bounding box     │
-└───────────────────────┬──────────────────────────────┘
-                        ▼
-┌──────────────────────────────────────────────────────┐
-│           Parallel Identification Layer              │
-├─────────────────┬────────────────┬───────────────────┤
-│   OCR           │  Color Match   │  Kalman Update    │
-│  (team number)  │  (team color)  │  (pos/velocity)   │
-└────────┬────────┴───────┬────────┴─────────┬─────────┘
-         └────────────────┼──────────────────┘
-                          ▼
-┌──────────────────────────────────────────────────────┐
-│           Multi-Method Fusion                        │
-│  Select best identification; compute confidence      │
-└───────────────────────┬──────────────────────────────┘
-                        ▼
-┌──────────────────────────────────────────────────────┐
-│           Perspective Transform                      │
-│  Pixel coordinates → field coordinates (ft/m)        │
-└───────────────────────┬──────────────────────────────┘
-                        ▼
-┌──────────────────────────────────────────────────────┐
-│           MOVEMENT_TRACK Storage (DB)                │
-└──────────────────────────────────────────────────────┘
-```
+---
 
-### Component Interactions
+## 1. Overview
 
-- **Celery task** (`process_video_file`) orchestrates the pipeline end-to-end
-- **VideoProcessor service** encapsulates frame extraction, detection, and tracking
-- **IdentificationService** runs OCR, color matching, and Kalman fusion in parallel
-- **PerspectiveTransformer** applies a per-event calibration matrix
-- **MovementTrackRepository** batches database inserts for efficiency
+ScouterFRC analyzes official FRC match videos to produce objective, per-robot performance data. The computer vision pipeline must reliably track up to six robots simultaneously across a 150-second match while handling the unique challenges of FRC competition footage:
 
-### Error Handling Flow
+| Challenge | Cause | Solution |
+|-----------|-------|---------|
+| Team number unreadable | Robot rotation, occlusion, camera angle | Multi-method identification (OCR → color → Kalman) |
+| Robot height/shape changes | Mechanism deployment (arms, elevators, intakes) | Size-change detection + re-identification check |
+| Robot occlusion | Robots overlapping in frame | Kalman prediction during gaps; re-confirmation after |
+| Camera shake | Arena handheld/fixed cameras | Frame stabilization preprocessing |
+| Field glare / lighting variation | Arena lighting, LEDs | YOLOv8 fine-tuned on diverse lighting conditions |
+| Multiple similar-looking robots | Common bumper designs | Alliance color + position as disambiguation |
+
+### Identification Method Priority
+
+The pipeline uses a **cascaded identification** strategy — each method is attempted in order and the first high-confidence match is used:
 
 ```
-Exception in any stage
-        │
-        ▼
-  Log full traceback with frame number and task ID
-        │
-        ├─ Recoverable (e.g., single corrupted frame)
-        │         → skip frame, continue processing, increment error counter
-        │
-        └─ Fatal (e.g., unreadable video, DB connection lost)
-                  → mark task FAILED, store error in Celery result backend
-                  → send alert if configured
+1. OCR (team number directly read)          → highest confidence
+2. DeepSORT track continuity                → high confidence (continuous track)
+3. Color profile matching                   → medium confidence
+4. Alliance + position spatial constraint   → medium confidence (eliminates options)
+5. Kalman position prediction               → lower confidence (temporal only)
+6. UNKNOWN (flag for manual review)         → no confident match
 ```
 
 ---
 
-## 3. Robot Detection (YOLOv8)
+## 2. Pipeline Architecture
 
-### Model Selection Rationale
+### End-to-End Processing Flow
 
-YOLOv8 (Ultralytics) is chosen over alternatives because:
+```
+Video File (S3)
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 1: Preprocessing                                         │
+│  - FFmpeg decode to frames at configurable FPS (default: 10)    │
+│  - Frame stabilization (optional, for shaky footage)            │
+│  - Resize to 640×640 for YOLO input                             │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 2: Object Detection (YOLOv8)                             │
+│  Input:  640×640 normalized frame                               │
+│  Output: [{bbox, confidence, class}]                            │
+│  Classes: robot_red, robot_blue, game_piece, field_element      │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 3: Team Identification (per detection)                   │
+│  3a. OCR — attempt to read team number from bumper region       │
+│  3b. Color matching — compare to calibrated team color profiles │
+│  3c. Alliance + position — spatial constraint filtering         │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 4: Multi-Object Tracking (DeepSORT)                      │
+│  Input:  detections with team_id candidates + frame             │
+│  Output: [{track_id, bbox, team_id, confidence}]                │
+│  - Maintains appearance embeddings per robot                    │
+│  - Kalman filter predicts positions during occlusion            │
+│  - Re-identifies after configuration changes                    │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 5: Perspective Transform                                  │
+│  Pixel (x, y) → Field coordinates (feet from corner)           │
+│  Calibrated once per season per camera angle                    │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 6: Persist to Database                                   │
+│  Batch-write MovementTrack rows                                 │
+│  Trigger analytics task on completion                           │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-| Criterion | YOLOv8 | Faster R-CNN | SSD | RT-DETR |
-|-----------|--------|--------------|-----|---------|
-| Real-time capable on CPU | ✅ | ❌ | ✅ | ⚠️ |
-| Accuracy (mAP@0.5) | High | Higher | Medium | High |
-| Transfer learning ease | ✅ | ✅ | ⚠️ | ✅ |
-| Community / tooling | Excellent | Good | Good | Growing |
-| Python API quality | Excellent | Fair | Fair | Good |
+### Module Structure
 
-YOLOv8-nano or YOLOv8-small are sufficient for a 6-robot scene; larger variants are reserved for GPU environments.
+```
+backend/app/services/
+  ├── video_processor.py        — Main pipeline orchestrator
+  ├── cv/
+  │     ├── __init__.py
+  │     ├── detector.py         — YOLOv8 wrapper
+  │     ├── tracker.py          — DeepSORT wrapper + re-ID logic
+  │     ├── team_identifier.py  — Cascaded identification (OCR, color, spatial)
+  │     ├── ocr_reader.py       — EasyOCR team number extraction
+  │     ├── color_matcher.py    — Color histogram matching per team
+  │     ├── kalman_predictor.py — Standalone Kalman filter for gap filling
+  │     └── perspective.py      — Perspective transform calibration + application
+  └── cv/models/                — Trained YOLOv8 .pt weight files
+```
 
-### Training Data Requirements
+---
 
-- Minimum 2 000 annotated frames from FRC match footage
-- At least 10 different FRC events represented
-- Multiple camera angles (overhead, side, corner)
-- Variety of lighting conditions and game years
+## 3. YOLOv8 Detection
 
-### Model Variants
-
-| Variant | Parameters | CPU FPS (1080p) | GPU FPS | Recommended Use |
-|---------|-----------|-----------------|---------|-----------------|
-| YOLOv8n (nano) | 3.2 M | 8–12 | 60+ | Raspberry Pi / edge |
-| YOLOv8s (small) | 11.2 M | 12–20 | 100+ | Server CPU |
-| YOLOv8m (medium) | 25.9 M | 6–10 | 60+ | GPU server |
-| YOLOv8l (large) | 43.7 M | 2–5 | 40+ | High-accuracy offline |
-
-**Default:** `YOLOv8s` balances accuracy and CPU-only performance.
-
-### Performance Characteristics
-
-- **mAP@0.5:** target ≥ 0.95 after fine-tuning on FRC data
-- **False positive rate:** < 5 % (non-robot objects detected as robots)
-- **False negative rate:** < 5 % (robots missed entirely)
-
-### Confidence & NMS Thresholds
+### Model Configuration
 
 ```python
-YOLO_CONFIDENCE_THRESHOLD = 0.45   # reject low-confidence detections
-YOLO_NMS_IOU_THRESHOLD    = 0.40   # non-maximum suppression overlap limit
+# backend/app/services/cv/detector.py
+from ultralytics import YOLO
+import torch
+
+class RobotDetector:
+    SUPPORTED_CLASSES = {
+        0: "robot_red",
+        1: "robot_blue",
+        2: "game_piece",
+        3: "field_element",
+    }
+    CONFIDENCE_THRESHOLD = 0.45
+    IOU_THRESHOLD = 0.5
+
+    def __init__(self, model_path: str, device: str = "auto"):
+        if device == "auto":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
+        self.model = YOLO(model_path)
+        self.model.to(device)
+
+    def detect(self, frame: np.ndarray) -> list[Detection]:
+        results = self.model(
+            frame,
+            conf=self.CONFIDENCE_THRESHOLD,
+            iou=self.IOU_THRESHOLD,
+            verbose=False,
+        )[0]
+
+        detections = []
+        for box in results.boxes:
+            detections.append(Detection(
+                bbox=box.xyxy[0].cpu().numpy(),
+                confidence=float(box.conf),
+                class_id=int(box.cls),
+                class_name=self.SUPPORTED_CLASSES[int(box.cls)],
+            ))
+        return detections
 ```
 
-Tune these per event if the field background produces many false positives.
+### FRC-Specific Considerations
 
-### Hardware Requirements
+- **Input resolution:** 640×640 (YOLOv8n through YOLOv8x — larger model = better accuracy, more compute)
+- **Recommended model:** `YOLOv8m` — good balance of mAP and speed on T4 GPU (~25 ms/frame)
+- **Classes to detect:**
+  - `robot_red` — bumpers are red (alliance identification built into class)
+  - `robot_blue` — bumpers are blue
+  - `game_piece` — game-specific object (changes each season)
+  - `field_element` — static field structures (used as perspective calibration anchors)
 
-| Environment | Requirement |
-|-------------|-------------|
-| CPU only | 4+ cores, 8 GB RAM |
-| GPU accelerated | NVIDIA GPU with CUDA 11.8+, ≥ 4 GB VRAM |
-| Minimum (testing) | 2 cores, 4 GB RAM (reduced FPS expected) |
+### Fine-Tuning Requirements
+
+Pre-trained COCO weights are insufficient for FRC robots; fine-tuning is required:
+
+```yaml
+# training/yolov8_frc.yaml
+path: datasets/frc_2024
+train: images/train
+val: images/val
+test: images/test
+
+nc: 4
+names: ["robot_red", "robot_blue", "game_piece", "field_element"]
+```
+
+```bash
+# Fine-tune YOLOv8m on FRC dataset
+yolo train \
+  model=yolov8m.pt \
+  data=training/yolov8_frc.yaml \
+  epochs=100 \
+  imgsz=640 \
+  batch=16 \
+  device=0 \
+  project=runs/train \
+  name=frc_2024_v1
+
+# Export to ONNX for production inference
+yolo export model=runs/train/frc_2024_v1/weights/best.pt format=onnx
+```
 
 ---
 
-### Training Strategy
+## 4. DeepSORT Multi-Object Tracking
 
-#### Data Collection
+### What DeepSORT Provides
 
-1. Download match videos from The Blue Alliance or team uploads
-   - **Usage rights:** Verify licensing and attribution requirements before using videos for training. The Blue Alliance streams are generally intended for team/scouting use; confirm terms of service before large-scale automated collection.
-2. Sample one frame per second to build a diverse dataset
-3. Cover at least 5 different FRC game years to maximize generalization
+DeepSORT extends the SORT tracker with:
+1. **Appearance embeddings** — deep CNN features extracted from each detected object
+2. **Mahalanobis distance** — combines appearance similarity with Kalman-predicted position
+3. **Hungarian algorithm** — globally optimal assignment of detections to existing tracks
+4. **Age-based pruning** — tracks without detections for `max_age` frames are removed
 
-#### Annotation Guidelines
-
-- Draw bounding boxes tightly around the robot chassis
-- Include partially visible robots (near field boundaries)
-- Label occluded robots only if ≥ 50 % of the robot is visible
-- Use a single class: `robot`
-
-#### Augmentation Strategy
-
-```
-Original frame
-  ├─ Horizontal flip
-  ├─ Random brightness ±20 %
-  ├─ Random contrast ±20 %
-  ├─ Gaussian blur (sigma 0–1)
-  ├─ Random crop (±10 %)
-  └─ Mosaic (combine 4 images)
-```
-
-#### Cross-Validation
-
-- 5-fold cross-validation across events (not frames) to prevent data leakage
-- Hold out one full event as final test set
-
-#### Performance Metrics
-
-- **mAP@0.5** — primary detection quality metric
-- **mAP@0.5:0.95** — stricter overlap metric for localization quality
-- **Precision / Recall** — balance false positives vs false negatives
-- **Inference time (ms)** — measure on target hardware
-
----
-
-### Inference
-
-#### Real-Time Requirements
-
-- Target: ≥ 15 FPS on a 4-core server CPU with `YOLOv8s`
-- GPU acceleration optional; system must work on CPU only
-
-#### Batch Processing
-
-- For offline videos: process every frame or every Nth frame (configurable)
-- Default: every frame for ≤ 30 FPS source; every other frame for > 30 FPS source
-
-#### Frame Sampling
+### Configuration
 
 ```python
-FRAME_SAMPLE_RATE = 1   # process 1 out of every N frames
-                         # 1 = every frame, 2 = every other, etc.
+# backend/app/services/cv/tracker.py
+from deep_sort_realtime.deepsort_tracker import DeepSort
+
+class RobotTracker:
+    def __init__(self):
+        self.tracker = DeepSort(
+            max_age=30,           # Frames before track is deleted (3 sec at 10 FPS)
+            n_init=3,             # Frames needed to confirm a new track
+            max_cosine_distance=0.4,
+            nn_budget=100,
+            embedder="mobilenet", # Appearance embedding model
+            half=True,            # FP16 on GPU for speed
+            embedder_gpu=True,
+        )
+        # Maps DeepSORT internal track_id → confirmed team_id
+        self.track_to_team: dict[int, int] = {}
+        # Historical bounding box sizes per track_id for change detection
+        self.track_bbox_history: dict[int, deque] = defaultdict(lambda: deque(maxlen=10))
+
+    def update(
+        self,
+        frame: np.ndarray,
+        detections: list[Detection],
+        team_identifications: list[TeamIdentification],
+    ) -> list[TrackedRobot]:
+        # Convert to DeepSORT format: [[x1, y1, x2, y2, conf], ...]
+        raw_detections = [
+            [*d.bbox, d.confidence, d.class_id]
+            for d in detections
+        ]
+        tracks = self.tracker.update_tracks(raw_detections, frame=frame)
+
+        results = []
+        for track in tracks:
+            if not track.is_confirmed():
+                continue
+
+            track_id = track.track_id
+            bbox = track.to_ltrb()
+            self.track_bbox_history[track_id].append(bbox)
+
+            # Update team assignment if we have a confident identification
+            matched_id = self._match_detection_to_track(
+                track, team_identifications
+            )
+            if matched_id and matched_id.confidence > 0.8:
+                self.track_to_team[track_id] = matched_id.team_number
+
+            results.append(TrackedRobot(
+                track_id=track_id,
+                bbox=bbox,
+                team_number=self.track_to_team.get(track_id),
+                identification_method=matched_id.method if matched_id else "DeepSORT",
+                confidence=matched_id.confidence if matched_id else 0.85,
+                bbox_size_change=self._compute_size_change(track_id),
+            ))
+        return results
+
+    def _compute_size_change(self, track_id: int) -> float:
+        """Returns fractional change in bounding box area vs 10-frame average."""
+        history = self.track_bbox_history[track_id]
+        if len(history) < 2:
+            return 0.0
+        areas = [(b[2]-b[0]) * (b[3]-b[1]) for b in history]
+        avg_area = sum(areas[:-1]) / len(areas[:-1])
+        current_area = areas[-1]
+        return abs(current_area - avg_area) / max(avg_area, 1)
 ```
 
-#### Variable Resolution Handling
+---
 
-- Resize all frames to 640 × 640 before inference (YOLOv8 default)
-- Scale bounding box coordinates back to original resolution before downstream use
+## 5. Team Number Identification via OCR
 
-#### GPU Acceleration
+### Approach
+
+FRC robots display their 4-digit team number prominently on their bumpers. When the camera angle is favorable, OCR can directly read the team number with high confidence.
 
 ```python
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model = YOLO("yolov8s.pt")
-model.to(device)
+# backend/app/services/cv/ocr_reader.py
+import easyocr
+import cv2
+import numpy as np
+import re
+from dataclasses import dataclass
+
+@dataclass
+class OCRResult:
+    team_number: int | None
+    confidence: float
+    raw_text: str
+
+class TeamNumberOCR:
+    VALID_TEAM_RANGE = (1, 9999)
+    MARGIN_RATIO = 0.25       # Expand bounding box by 25% to capture full bumper
+
+    def __init__(self):
+        # EasyOCR: faster than Tesseract; better digit recognition
+        self.reader = easyocr.Reader(["en"], gpu=True, verbose=False)
+
+    def read_team_number(
+        self, frame: np.ndarray, bbox: np.ndarray
+    ) -> OCRResult:
+        region = self._extract_bumper_region(frame, bbox)
+        preprocessed = self._preprocess_for_ocr(region)
+
+        try:
+            results = self.reader.readtext(preprocessed, allowlist="0123456789")
+        except Exception:
+            return OCRResult(team_number=None, confidence=0.0, raw_text="")
+
+        # Find best digit sequence matching FRC team number format
+        best = self._select_best_match(results)
+        return best
+
+    def _extract_bumper_region(
+        self, frame: np.ndarray, bbox: np.ndarray
+    ) -> np.ndarray:
+        x1, y1, x2, y2 = bbox.astype(int)
+        h, w = frame.shape[:2]
+        margin_x = int((x2 - x1) * self.MARGIN_RATIO)
+        margin_y = int((y2 - y1) * self.MARGIN_RATIO)
+        # Expand region (clamped to frame boundaries)
+        rx1 = max(0, x1 - margin_x)
+        ry1 = max(0, y1 - margin_y)
+        rx2 = min(w, x2 + margin_x)
+        ry2 = min(h, y2 + margin_y)
+        return frame[ry1:ry2, rx1:rx2]
+
+    def _preprocess_for_ocr(self, region: np.ndarray) -> np.ndarray:
+        # Upscale small regions for better OCR accuracy
+        min_dim = 64
+        h, w = region.shape[:2]
+        if h < min_dim or w < min_dim:
+            scale = min_dim / min(h, w)
+            region = cv2.resize(region, None, fx=scale, fy=scale,
+                                interpolation=cv2.INTER_CUBIC)
+        # Convert to grayscale and enhance contrast
+        gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+        enhanced = cv2.equalizeHist(gray)
+        # Adaptive thresholding for varying lighting conditions
+        thresh = cv2.adaptiveThreshold(
+            enhanced, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            11, 2
+        )
+        return thresh
+
+    def _select_best_match(self, results: list) -> OCRResult:
+        for (bbox, text, confidence) in sorted(results, key=lambda r: -r[2]):
+            digits = re.sub(r"[^0-9]", "", text)
+            if len(digits) >= 1:
+                try:
+                    team_num = int(digits)
+                    if self.VALID_TEAM_RANGE[0] <= team_num <= self.VALID_TEAM_RANGE[1]:
+                        return OCRResult(
+                            team_number=team_num,
+                            confidence=float(confidence),
+                            raw_text=text,
+                        )
+                except ValueError:
+                    continue
+        return OCRResult(team_number=None, confidence=0.0, raw_text="")
 ```
+
+### Known Limitations
+
+| Limitation | Mitigation |
+|------------|-----------|
+| Numbers obscured by robot mechanisms | Fall back to color matching |
+| Motion blur at high speed | Process at higher FPS during fast movement; OCR on sharpest frame in a 3-frame window |
+| Small frame size at distance | Upscale region before OCR; limit OCR to robots within 70% of frame height |
+| Similar-looking numbers under harsh lighting | Run OCR on 3 consecutive frames; take majority vote |
 
 ---
 
-## 4. Robot Tracking (DeepSORT)
+## 6. Color-Based Robot Identification
 
-### Why DeepSORT
+### Strategy
 
-| Tracker | Re-ID Model Required | CPU Performance | Occlusion Handling | FRC Fit |
-|---------|---------------------|-----------------|-------------------|---------|
-| DeepSORT | Optional | Good | Good | ✅ |
-| ByteTrack | No | Excellent | Moderate | ✅ |
-| SORT (simple) | No | Excellent | Poor | ⚠️ |
-| YOLO built-in | No | Good | Moderate | ✅ |
-| StrongSORT | Yes | Moderate | Excellent | ⚠️ (complexity) |
-
-**Decision:** DeepSORT without a custom re-ID model provides a good occlusion handling/complexity trade-off for the ≤ 6-robot FRC scenario.
-
-### Feature Extraction
-
-- Use the default DeepSORT appearance model (cosine distance on CNN features)
-- Features extracted from each bounding box crop at each frame
-- Appearance feature vectors stored per track for re-identification
-
-### Track Lifecycle
-
-```
-NEW DETECTION
-    │
-    ▼
-Track initialized (tentative)
-    │
-    ▼  (min_hits confirmations)
-Track confirmed (assigned stable ID)
-    │
-    ├─ Detection matched   → update track
-    ├─ Detection missing   → increment age (Kalman predict only)
-    │
-    └─ Age > max_age       → track deleted
-```
-
-### Track ID Assignment
-
-- IDs are monotonically increasing integers per video session
-- IDs are **not** reused after deletion within a single video
-- Mapping from DeepSORT track ID → team ID maintained separately
-
-### Tunable Parameters
-
-| Parameter | Default | Range | Effect |
-|-----------|---------|-------|--------|
-| `max_age` | 15 | 5–30 | Frames to keep a track alive without a detection |
-| `min_hits` | 2 | 1–3 | Detections needed before track is confirmed |
-| `iou_threshold` | 0.30 | 0.1–0.5 | Minimum IoU to associate detection with track |
-| `max_cosine_distance` | 0.4 | 0.2–0.6 | Appearance similarity threshold |
-
----
-
-### Multi-Robot Constraints
-
-- Maximum 3 robots per alliance, 6 total on field
-- Red alliance robots expected on the red half of the field during autonomous
-- Track count sanity check: alert if > 6 confirmed tracks exist simultaneously
-- Alliance-based spatial priors can resolve ambiguous re-identification
-
-### Robustness
-
-#### Track Fragmentation
-
-When a robot loses its track and re-enters, DeepSORT creates a new track. The system handles this by:
-
-1. Checking alliance spatial constraints — was a robot at this position before?
-2. Checking color profile similarity
-3. Running OCR if team number is visible
-4. Merging the new track ID with the historical team ID if confirmed
-
-#### Re-Identification Logic
-
-```
-New track appears at position P
-    ↓
-Query recently deleted tracks whose last position ≤ D meters from P
-    ↓
-For each candidate track:
-    - Color similarity check (Bhattacharyya distance)
-    - OCR check (if team number visible)
-    - Kalman-predicted position proximity
-    ↓
-If best candidate score > threshold → merge tracks
-Else → treat as new robot appearance
-```
-
-#### Track Merging Detection
-
-If two confirmed tracks overlap (IoU > 0.6) for > 5 frames, they likely represent the same robot. Merge the lower-confidence track into the higher-confidence one.
-
----
-
-## 5. Team Number Identification (OCR)
-
-### OCR Engine Selection
-
-| Engine | Speed | Accuracy | Language Support | CPU Friendly |
-|--------|-------|----------|-----------------|-------------|
-| Tesseract | Medium | Good | 100+ | ✅ |
-| EasyOCR | Slow | Very Good | 80+ | ✅ |
-| PaddleOCR | Fast | Excellent | 80+ | ✅ |
-| TrOCR (transformer) | Slow | Excellent | Limited | ❌ GPU needed |
-
-**Default:** EasyOCR for accuracy; Tesseract as a lightweight fallback.
-
-### Region Extraction
-
-1. Take the bounding box from YOLOv8
-2. Expand symmetrically by 20 % on each side: subtract 20 % of width from x1/add to x2, subtract 20 % of height from y1/add to y2 (team number often extends slightly outside the robot bbox)
-3. Crop frame to this expanded region
-
-### Preprocessing Pipeline
-
-```
-Raw crop
-    ↓
-Resize to 128 × 128 (or larger if source resolution allows)
-    ↓
-Convert to grayscale
-    ↓
-Histogram equalization (CLAHE, clip=2.0, tileGridSize=8×8)
-    ↓
-Gaussian blur (3×3, sigma=1) for noise reduction
-    ↓
-Adaptive threshold (blockSize=11, C=2)
-    ↓
-Morphological dilation (3×3 kernel, 1 iteration)
-    ↓
-Feed to OCR engine
-```
-
-### Confidence Scoring
-
-- EasyOCR returns a confidence value per detected string; require ≥ 0.80
-- Tesseract confidence mapped linearly from its internal integer score
-
-### Character Set Optimization
-
-- Restrict OCR character set to digits `[0-9]`
-- Team numbers are 1–4 digits (valid range: 1–9999)
-
-### Performance Benchmarking
-
-Run on a held-out set of 500 robot crops with known team numbers:
-
-- True positive rate (correct number read): target ≥ 90 %
-- False positive rate (wrong number): target < 5 %
-- No-detection rate (number not found): acceptable; handled by fallback
-
----
-
-### Preprocessing Pipeline (Detail)
-
-#### Bounding Box Expansion
+Each FRC team has distinct bumper colors and often distinctive body colors. A per-event calibration pass captures color profiles for each team, enabling identification when the team number is unreadable.
 
 ```python
-expansion = 0.20
-x1 = max(0, x1 - w * expansion)
-y1 = max(0, y1 - h * expansion)
-x2 = min(frame_width,  x2 + w * expansion)
-y2 = min(frame_height, y2 + h * expansion)
+# backend/app/services/cv/color_matcher.py
+import cv2
+import numpy as np
+import pickle
+from pathlib import Path
+
+class TeamColorMatcher:
+    HISTOGRAM_SIZE = [30, 32]   # Hue × Saturation bins
+    HISTOGRAM_RANGES = [0, 180, 0, 256]
+    MATCH_THRESHOLD = 0.45      # Bhattacharyya distance (lower = more similar)
+
+    def __init__(self, profiles_path: Path):
+        self.profiles: dict[int, np.ndarray] = {}  # team_number → histogram
+        if profiles_path.exists():
+            with open(profiles_path, "rb") as f:
+                self.profiles = pickle.load(f)
+
+    def calibrate_team(
+        self, team_number: int, frame: np.ndarray, bbox: np.ndarray
+    ) -> None:
+        """Call once per team at match start when team number is confirmed via OCR."""
+        region = self._extract_robot_region(frame, bbox)
+        histogram = self._compute_histogram(region)
+        self.profiles[team_number] = histogram
+
+    def match(
+        self,
+        frame: np.ndarray,
+        bbox: np.ndarray,
+        candidate_teams: list[int],
+    ) -> tuple[int | None, float]:
+        """Return (team_number, confidence) for best color match among candidates."""
+        region = self._extract_robot_region(frame, bbox)
+        query_hist = self._compute_histogram(region)
+
+        best_team = None
+        best_score = float("inf")
+
+        for team_num in candidate_teams:
+            if team_num not in self.profiles:
+                continue
+            dist = cv2.compareHist(
+                query_hist,
+                self.profiles[team_num],
+                cv2.HISTCMP_BHATTACHARYYA,
+            )
+            if dist < best_score:
+                best_score = dist
+                best_team = team_num
+
+        if best_team is None or best_score > self.MATCH_THRESHOLD:
+            return None, 0.0
+
+        # Convert Bhattacharyya distance to confidence (0–1)
+        confidence = max(0.0, 1.0 - (best_score / self.MATCH_THRESHOLD))
+        return best_team, confidence
+
+    def _extract_robot_region(
+        self, frame: np.ndarray, bbox: np.ndarray
+    ) -> np.ndarray:
+        x1, y1, x2, y2 = bbox.astype(int)
+        # Use bottom 30% of bounding box (bumper region)
+        bumper_y1 = y1 + int((y2 - y1) * 0.7)
+        return frame[bumper_y1:y2, x1:x2]
+
+    def _compute_histogram(self, region: np.ndarray) -> np.ndarray:
+        hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+        hist = cv2.calcHist(
+            [hsv], [0, 1], None,
+            self.HISTOGRAM_SIZE,
+            self.HISTOGRAM_RANGES,
+        )
+        cv2.normalize(hist, hist, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
+        return hist
 ```
-
-#### Perspective Correction
-
-If the robot is viewed at an angle, use an affine/perspective warp to straighten the number panel before OCR. Estimate homography from the four corners of the number panel when visible.
-
----
-
-### Validation
-
-- **OCR confidence threshold:** ≥ 0.80 to accept result
-- **Valid team list check:** cross-reference against event roster (from TBA sync)
-- **Cross-frame validation:** require the same team number read in ≥ 3 of the last 10 frames before committing
-- **Fallback:** if OCR fails or confidence < threshold, defer to color matching or DeepSORT
-
----
-
-## 6. Color-Based Team Identification
-
-### Color Space
-
-HSV (Hue, Saturation, Value) is preferred over RGB or LAB because:
-- Hue is rotation-invariant to lighting changes
-- Saturation discriminates colorful robots from grey/silver ones
-- Easy to define color ranges for common FRC team colors
-
-### Dominant Color Extraction
-
-1. Convert robot crop to HSV
-2. Compute a 3D histogram (H: 36 bins, S: 8 bins, V: 8 bins)
-3. Find the top-3 dominant hue clusters (excluding near-black and near-white)
-4. Store the weighted average hue + saturation as the color signature
-
-### Color Histogram Computation
-
-```python
-hist = cv2.calcHist(
-    [hsv_crop],
-    channels=[0, 1, 2],
-    mask=None,
-    histSize=[36, 8, 8],
-    ranges=[0, 180, 0, 256, 0, 256]
-)
-cv2.normalize(hist, hist)
-```
-
-### Per-Event Team Color Registration
-
-Each team's color profile is calibrated at the start of an event:
-
-1. Identify a frame where the robot is clearly visible and unoccluded
-2. Manually confirm team number ↔ color profile mapping
-3. Store in `ROBOT_COLOR_PROFILE` table
-
-### Alliance Color Constraints
-
-- Red alliance robots should have red-dominant team colors (or neutral)
-- Blue alliance robots should have blue-dominant team colors (or neutral)
-- Use alliance assignment from TBA data to narrow candidate pool
-
----
 
 ### Calibration Procedure
 
-1. **Initial capture:** from the first 10 seconds of the match, extract all confirmed robot tracks
-2. **Manual confirmation:** display each robot crop and ask the operator to assign team numbers
-3. **Profile storage:** persist the HSV histogram as a binary blob in `ROBOT_COLOR_PROFILE`
-4. **Re-use:** profiles are reused across matches in the same event; updated if confidence drops
-5. **Seasonal updates:** profiles may change between events (robot repaints); recalibrate at each event
-
----
-
-### Matching Algorithm
-
-#### Bhattacharyya Distance
+At the start of each match (first 30 frames), the pipeline attempts to confirm all 6 robots via OCR. When a robot is confirmed, its color profile is stored. This profile is then used for the rest of the match when the number becomes unreadable.
 
 ```python
-distance = cv2.compareHist(profile_hist, candidate_hist, cv2.HISTCMP_BHATTACHARYYA)
-# distance: 0 = identical, 1 = completely different
-similarity = 1.0 - distance
+def calibration_pass(
+    self,
+    frame: np.ndarray,
+    tracked_robots: list[TrackedRobot],
+) -> None:
+    for robot in tracked_robots:
+        if (
+            robot.identification_method == "OCR"
+            and robot.confidence > 0.85
+            and robot.team_number is not None
+            and robot.team_number not in self.color_matcher.profiles
+        ):
+            self.color_matcher.calibrate_team(
+                robot.team_number, frame, robot.bbox
+            )
+            logger.info(
+                "Calibrated color profile for team %s", robot.team_number
+            )
 ```
-
-#### Confidence Thresholding
-
-| Similarity | Confidence | Action |
-|------------|-----------|--------|
-| ≥ 0.75 | High | Accept match |
-| 0.55–0.74 | Medium | Use as supporting evidence |
-| < 0.55 | Low | Discard; use other methods |
-
-#### Multi-Frame Confirmation
-
-Require similarity ≥ 0.65 in ≥ 5 of the last 10 frames before committing a color-based identification.
-
-#### Handling Similar Colors
-
-If two teams have similar color profiles (Bhattacharyya distance < 0.15 between their profiles), flag both as "ambiguous color pair" and rely on OCR or DeepSORT tracking instead.
 
 ---
 
-## 7. Kalman Filtering & Motion Prediction
+## 7. Robot Re-Identification After Configuration Changes
 
-### Kalman Filter Implementation
+### The Problem
 
-Standard linear Kalman filter tracking a 4-dimensional state vector:
+FRC robots deploy mechanisms (arms, elevators, intakes, climbers) during a match, which can dramatically change their:
+- **Bounding box size** — a robot with a deployed arm can be 3× taller
+- **Appearance features** — DeepSORT's embedding changes when the robot looks different
+- **Shape** — rectangular robot becomes L-shaped or T-shaped with mechanisms
 
-```
-State:       [x, y, vx, vy]
-Measurement: [x, y]          (bounding box center)
-```
+If not handled, DeepSORT may:
+1. Lose the existing track and create a new track (fragmented track)
+2. Incorrectly merge two nearby robots into one track
 
-Transition matrix (constant-velocity model, dt = frame period):
-
-```
-F = [[1, 0, dt,  0],
-     [0, 1,  0, dt],
-     [0, 0,  1,  0],
-     [0, 0,  0,  1]]
-```
-
-### Process & Measurement Noise
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| Process noise Q | diag([1, 1, 2, 2]) | Higher noise on velocity (robots accelerate rapidly) |
-| Measurement noise R | diag([5, 5]) | Pixel-level detection jitter |
-
-These defaults should be tuned against real FRC footage; values in pixels² at 1280×720.
-
-### Prediction During Detection Gaps
-
-When no detection is associated with a track:
-
-1. Run Kalman predict step (advance state estimate)
-2. Record position as `interpolated = True`
-3. Inflate uncertainty covariance by 10 % per gap frame
-4. If gap exceeds `max_gap_frames` (default: 15), terminate track
-
-### Velocity Smoothing
-
-Apply exponential moving average to velocity estimates:
+### Detection Strategy
 
 ```python
-alpha = 0.3   # smoothing factor
-velocity_smooth = alpha * velocity_raw + (1 - alpha) * velocity_smooth_prev
+# backend/app/services/cv/tracker.py
+
+CONFIGURATION_CHANGE_THRESHOLD = 0.35  # 35% change in bounding box area
+
+def _detect_configuration_change(
+    self, track_id: int, current_bbox: np.ndarray
+) -> bool:
+    history = self.track_bbox_history[track_id]
+    if len(history) < 5:
+        return False
+
+    # Compute rolling average area over last 5 frames
+    recent_areas = [
+        (b[2]-b[0]) * (b[3]-b[1]) for b in list(history)[-5:]
+    ]
+    avg_area = sum(recent_areas[:-1]) / len(recent_areas[:-1])
+    current_area = (current_bbox[2]-current_bbox[0]) * (current_bbox[3]-current_bbox[1])
+
+    return abs(current_area - avg_area) / max(avg_area, 1) > CONFIGURATION_CHANGE_THRESHOLD
 ```
 
----
+### Re-Identification Protocol
 
-### Motion Constraints
-
-| Constraint | Value | Rationale |
-|-----------|-------|-----------|
-| Max velocity | 5 m/s (≈ 16.4 ft/s) | FRC robot speed limit |
-| Max acceleration | 10 m/s² | Typical drivetrain limit |
-| Field boundary | [0,0] – [16.46 m, 8.23 m] (54 × 27 ft) | 2025 season field |
-
-If a predicted position violates a boundary, clamp to the nearest valid coordinate.
-
----
-
-### Gap Handling
-
-| Gap Duration | Action |
-|-------------|--------|
-| 1–5 frames | Kalman prediction; mark `interpolated = True` |
-| 6–15 frames | Kalman prediction; reduce confidence score by 0.05 per frame |
-| > 15 frames | Terminate track; create new track when robot reappears |
-
----
-
-## 8. Configuration Change Detection
-
-### Overview
-
-FRC robots deploy mechanisms mid-match (arms, elevators, intake rollers) that significantly change their visual silhouette. These changes can confuse the tracker or invalidate color profiles.
-
-### Detection Method
-
-Track the bounding box area over a rolling 10-frame window. Compute the percentage change in area:
+When a configuration change is detected on a track:
 
 ```python
-area_now  = (x2 - x1) * (y2 - y1)
-area_prev = rolling_avg_area[-10:]
-pct_change = abs(area_now - area_prev) / area_prev * 100
-```
+def _handle_configuration_change(
+    self,
+    frame: np.ndarray,
+    track: Track,
+    candidate_teams: list[int],
+) -> TeamIdentification | None:
+    """
+    Multi-step re-identification when a robot changes configuration.
 
-Flag the track if `pct_change ≥ 30 %`.
+    Priority:
+    1. OCR — try to directly read team number from the (now-visible) bumper
+    2. Spatial constraint — robot should still be near its last known position
+    3. Color matching — color profile should remain consistent
+    4. Existing track assignment — assume same team unless contradicted
+    """
+    bbox = track.to_ltrb()
+    last_known_team = self.track_to_team.get(track.track_id)
 
-### Handling
+    # Step 1: Try OCR first (configuration changes sometimes expose bumper)
+    ocr_result = self.ocr_reader.read_team_number(frame, bbox)
+    if ocr_result.team_number is not None and ocr_result.confidence > 0.80:
+        if (last_known_team is not None
+                and ocr_result.team_number != last_known_team):
+            logger.warning(
+                "Track %d: OCR says team %d but previously was %d — "
+                "flagging for review",
+                track.track_id, ocr_result.team_number, last_known_team,
+            )
+            return TeamIdentification(
+                team_number=ocr_result.team_number,
+                method="OCR_post_config_change",
+                confidence=ocr_result.confidence,
+                flagged=True,
+                flag_reason="team_number_conflict_after_config_change",
+            )
+        return TeamIdentification(
+            team_number=ocr_result.team_number,
+            method="OCR_post_config_change",
+            confidence=ocr_result.confidence,
+        )
 
-1. **Re-identification check:** when a configuration change is detected, re-run OCR and color matching on the new silhouette
-2. **Tracking uncertainty window:** for the next 5 frames after detection, reduce identification confidence by 0.1
-3. **Manual review flagging:** if re-identification fails, set `flagged_for_review = True` and `review_reason = "configuration_change"`
-4. **Recovery:** after 10 stable frames (< 5 % area variation), confidence returns to normal
+    # Step 2: Spatial constraint — robot must be within plausible movement range
+    # (max 6 ft/sec → 0.6 ft/frame at 10 FPS → ~15 pixels at field scale)
+    spatially_plausible = self._filter_by_spatial_proximity(
+        bbox, last_known_team, candidate_teams
+    )
 
----
+    # Step 3: Color matching among spatially plausible candidates
+    if spatially_plausible:
+        color_match_team, color_conf = self.color_matcher.match(
+            frame, bbox, spatially_plausible
+        )
+        if color_match_team is not None and color_conf > 0.6:
+            return TeamIdentification(
+                team_number=color_match_team,
+                method="Color_post_config_change",
+                confidence=color_conf,
+            )
 
-## 9. Handling Occlusions & Loss
+    # Step 4: Fall back to existing track assignment (assume same team)
+    if last_known_team is not None:
+        return TeamIdentification(
+            team_number=last_known_team,
+            method="TrackContinuity_post_config_change",
+            confidence=0.7,
+            flagged=True,
+            flag_reason="configuration_change_assumed_same_team",
+        )
 
-### Robot-to-Robot Occlusion
-
-When two robots overlap on the field, one or both bounding boxes may merge or disappear.
-
-**Handling:**
-
-- DeepSORT continues predicting both tracks via Kalman for up to `max_age` frames
-- Alliance-based spatial constraints prevent assigning both tracks to the same alliance position
-- When occlusion ends, the first detection within `iou_threshold` of each predicted position is re-associated
-
-### Off-Field Robot
-
-A robot that leaves the playing field (e.g., tips over, hangs) may exit the camera frame.
-
-**Handling:**
-
-- If predicted coordinates move outside the field boundary, mark track as `off_field = True`
-- Suspend the track (stop Kalman prediction) after 5 consecutive off-field frames
-- Resume when a detection appears near the last known in-bounds position
-
-### Alliance-Based Spatial Constraints
-
-During autonomous, alliance robots are expected to start in their alliance-colored starting tiles. Use this as a strong prior for initial identification assignment.
-
----
-
-### Occlusion Strategies
-
-1. **DeepSORT age management:** `max_age` controls how long an occluded track is kept alive
-2. **Kalman prediction:** provides an estimated position even during occlusion
-3. **Alliance zone check:** verifies that a re-associated detection is consistent with the team's expected zone
-4. **Multi-frame confirmation:** require ≥ 3 consecutive frames of consistent re-association before finalizing
-
----
-
-## 10. Multi-Method Identification Strategy
-
-### Hierarchical Approach (Priority Order)
-
-The system attempts identification methods in priority order, stopping as soon as sufficient confidence is achieved.
-
-#### Priority 1 — OCR (Highest Priority)
-
-- **Conditions:** team number visible and readable in the crop
-- **Confidence range:** 0.85–1.0
-- **Cross-frame requirement:** same number seen in ≥ 3 of last 10 frames
-- **Fallback:** if OCR confidence < 0.80 or no number found, proceed to Priority 2
-
-#### Priority 2 — DeepSORT Continuous Tracking
-
-- **Conditions:** unbroken track from a previously identified robot
-- **Confidence range:** 0.80–0.95
-- **Confidence decay:** 0.02 per frame without a fresh OCR or color confirmation
-- **Fallback:** if track was recently fragmented (gap > 15 frames), proceed to Priority 3
-
-#### Priority 3 — Color Matching
-
-- **Conditions:** team has a registered color profile; profile is distinctive (not ambiguous)
-- **Confidence range:** 0.70–0.90
-- **Fallback:** if color similarity < 0.55 or profile is ambiguous, proceed to Priority 4
-
-#### Priority 4 — Kalman Prediction + Alliance Constraints
-
-- **Conditions:** robot position is predictable; only one team is expected at that location
-- **Confidence range:** 0.60–0.80
-- **Fallback:** if multiple robots could be at the predicted position, flag for manual review
-
-#### Priority 5 — Manual Review Required
-
-- **Conditions:** all methods uncertain (confidence < 0.60)
-- **Action:** set `flagged_for_review = True`; store best guess with its confidence score
-- **Review:** a human operator resolves the identification via the review dashboard
-
----
-
-### Decision Logic Flow
-
-```
-For each (track, frame):
-    1. Run OCR on crop
-       ├─ confidence ≥ 0.85 and number in event roster → IDENTIFIED (OCR)
-       └─ else ↓
-
-    2. Check DeepSORT continuous tracking
-       ├─ track_id has confirmed team assignment and gap = 0 → IDENTIFIED (DeepSORT)
-       └─ else ↓
-
-    3. Run color matching against all registered profiles
-       ├─ best match similarity ≥ 0.70 and not ambiguous → IDENTIFIED (Color)
-       └─ else ↓
-
-    4. Apply Kalman prediction + alliance constraint
-       ├─ exactly one team expected at predicted position → IDENTIFIED (Kalman)
-       └─ else ↓
-
-    5. Flag for manual review
-       → identification_method = UNKNOWN, flagged_for_review = True
+    return None
 ```
 
 ---
 
-## 11. Video Processing Pipeline
+## 8. Team Number Recovery After Rotation / Occlusion
 
-### Complete Pipeline Specification
+### Rotation Handling
+
+When a robot rotates, its team number may be on the side facing away from the camera. The pipeline handles this via temporal consistency:
 
 ```
-Input Video (MP4 / MOV)
-    ↓
-[Frame Extraction]
-  - OpenCV VideoCapture
-  - Configurable sample rate (FRAME_SAMPLE_RATE)
-  - Emit frame number + timestamp
+Frame N:   Team #254 confirmed via OCR (front-facing)     confidence = 0.95 ✓
+Frame N+1: Robot rotates — number not visible             → use track_to_team[id]
+Frame N+2: Robot still rotated                            → Kalman position prediction
+Frame N+3: Robot faces camera again — confirm via OCR     confidence = 0.92 ✓
+```
 
-    ↓
-[Frame Preprocessing]
-  - Resize to 640×640 for YOLO input
-  - Retain original frame for crop extraction
+```python
+def resolve_team_identity(
+    self,
+    frame: np.ndarray,
+    track: Track,
+    candidate_teams: list[int],
+    frame_number: int,
+) -> TeamIdentification:
+    bbox = track.to_ltrb()
 
-    ↓
-[YOLOv8 Detection]
-  - Batch size 1 (per frame)
-  - Output: list of (x1, y1, x2, y2, confidence) bounding boxes
-  - Filter by YOLO_CONFIDENCE_THRESHOLD
+    # Check for configuration change first
+    if self._detect_configuration_change(track.track_id, bbox):
+        result = self._handle_configuration_change(frame, track, candidate_teams)
+        if result:
+            return result
 
-    ↓
-[DeepSORT Update]
-  - Feed detections + frame to tracker
-  - Output: list of (track_id, x1, y1, x2, y2)
+    # Try OCR
+    ocr = self.ocr_reader.read_team_number(frame, bbox)
+    if ocr.team_number is not None and ocr.confidence > self.OCR_MIN_CONFIDENCE:
+        # Validate against existing track assignment
+        existing_team = self.track_to_team.get(track.track_id)
+        if existing_team is not None and existing_team != ocr.team_number:
+            # Conflict: OCR says different team than track history
+            # Use multi-frame voting to resolve
+            return self._resolve_identity_conflict(
+                track, ocr, candidate_teams, frame_number
+            )
+        return TeamIdentification(
+            team_number=ocr.team_number,
+            method="OCR",
+            confidence=ocr.confidence,
+        )
 
-    ↓
-[Parallel Processing per track]:
-  ├─ [OCR]
-  │    crop → preprocess → EasyOCR → validate team number
-  │
-  ├─ [Color Match]
-  │    crop → HSV histogram → Bhattacharyya compare profiles
-  │
-  ├─ [Kalman Update]
-  │    detection → Kalman correct → velocity/heading estimate
-  │
-  └─ [Configuration Change Detection]
-       bbox area delta → flag if ≥ 30 % change
+    # OCR failed — use track continuity
+    existing_team = self.track_to_team.get(track.track_id)
+    if existing_team is not None:
+        return TeamIdentification(
+            team_number=existing_team,
+            method="DeepSORT",
+            confidence=0.85,
+        )
 
-    ↓
-[Multi-Method Fusion]
-  - Priority-ordered selection (OCR → DeepSORT → Color → Kalman)
-  - Compute final confidence score
-  - Set identification_method, flagged_for_review
+    # No existing track assignment — try color
+    color_team, color_conf = self.color_matcher.match(
+        frame, bbox, candidate_teams
+    )
+    if color_team is not None and color_conf > 0.55:
+        return TeamIdentification(
+            team_number=color_team,
+            method="Color",
+            confidence=color_conf,
+        )
 
-    ↓
-[Perspective Transform]
-  - Apply per-event calibration matrix
-  - Output: (x_field, y_field) in meters
+    # Spatial constraint (alliance + position)
+    spatial_team = self._identify_by_spatial_constraint(bbox, candidate_teams)
+    if spatial_team is not None:
+        return TeamIdentification(
+            team_number=spatial_team,
+            method="Spatial",
+            confidence=0.65,
+            flagged=True,
+            flag_reason="low_confidence_spatial_only",
+        )
 
-    ↓
-[MOVEMENT_TRACK Storage]
-  - Batch insert every 30 frames to reduce DB round trips
-  - Full record per (track_id, frame_number)
+    return TeamIdentification(
+        team_number=None,
+        method="UNKNOWN",
+        confidence=0.0,
+        flagged=True,
+        flag_reason="all_identification_methods_failed",
+    )
+```
 
-    ↓
-Output: MovementTrack rows with team IDs, field positions, metadata
+### Multi-Frame Voting for Conflict Resolution
+
+When OCR produces a team number that conflicts with the tracked identity, a 5-frame window is used to determine the true team:
+
+```python
+def _resolve_identity_conflict(
+    self,
+    track: Track,
+    ocr_result: OCRResult,
+    candidate_teams: list[int],
+    frame_number: int,
+) -> TeamIdentification:
+    track_id = track.track_id
+    # Record this frame's OCR vote
+    self.ocr_vote_history[track_id].append(
+        (frame_number, ocr_result.team_number, ocr_result.confidence)
+    )
+
+    # Only resolve after 5 votes
+    if len(self.ocr_vote_history[track_id]) < 5:
+        # Keep existing assignment with reduced confidence
+        return TeamIdentification(
+            team_number=self.track_to_team.get(track_id),
+            method="DeepSORT",
+            confidence=0.6,
+            flagged=True,
+            flag_reason="identity_conflict_pending_resolution",
+        )
+
+    # Majority vote over last 5 OCR readings
+    votes = [v[1] for v in self.ocr_vote_history[track_id][-5:]]
+    vote_counts = Counter(votes)
+    majority_team, count = vote_counts.most_common(1)[0]
+
+    if count >= 3:  # At least 3/5 frames agree
+        # Update track assignment to majority-vote winner
+        self.track_to_team[track_id] = majority_team
+        logger.info(
+            "Track %d: identity updated to team %d via multi-frame voting (%d/5)",
+            track_id, majority_team, count,
+        )
+        return TeamIdentification(
+            team_number=majority_team,
+            method="OCR_MultiFrameVote",
+            confidence=count / 5.0,
+        )
+
+    # No majority — flag for manual review
+    return TeamIdentification(
+        team_number=self.track_to_team.get(track_id),
+        method="DeepSORT",
+        confidence=0.5,
+        flagged=True,
+        flag_reason="identity_conflict_no_majority",
+    )
 ```
 
 ---
 
-## 12. Data Models & Storage
+## 9. Kalman Filter Prediction & Track Continuity
 
-### MOVEMENT_TRACK Extended Fields
+### Purpose
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `track_id` | PK (int) | Surrogate key |
-| `match_id` | FK → MATCH | Match this track belongs to |
-| `team_id` | FK → TEAM (nullable) | Identified team; null if unknown |
-| `frame_number` | int | Source video frame |
-| `timestamp_ms` | int | Milliseconds from match start |
-| `x_pixel` | float | Bounding box center X (pixels) |
-| `y_pixel` | float | Bounding box center Y (pixels) |
-| `x_field` | float | Field coordinate X (meters) |
-| `y_field` | float | Field coordinate Y (meters) |
-| `velocity` | float | Speed in m/s |
-| `heading` | float | Direction of travel (degrees, 0 = +X axis) |
-| `team_number_visible` | bool | Was team number visible this frame? |
-| `identification_method` | enum | OCR / DEEPSORT / COLOR / KALMAN / UNKNOWN |
-| `confidence_score` | float | 0.0–1.0 identification confidence |
-| `interpolated` | bool | True if position was Kalman-predicted (no detection) |
-| `bbox_size_change_pct` | float | % change vs rolling average |
-| `configuration_changed` | bool | True if size change ≥ threshold |
-| `flagged_for_review` | bool | True if confidence < 0.60 |
-| `review_reason` | str (nullable) | Human-readable flag reason |
-| `created_at` | datetime | Record creation timestamp |
-| `updated_at` | datetime | Last update timestamp |
+The Kalman filter predicts a robot's position during frames where detection fails (occlusion, brief disappearance behind a field element). This ensures track continuity and prevents DeepSORT from creating new track IDs for the same robot.
 
-### ROBOT_COLOR_PROFILE Table
+### State Vector
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `profile_id` | PK (int) | Surrogate key |
-| `event_id` | FK → EVENT | Event this profile was calibrated for |
-| `team_id` | FK → TEAM | Team whose robot was profiled |
-| `color_histogram` | bytes | Serialized OpenCV histogram (numpy array) |
-| `dominant_hue` | float | Primary hue value (0–180 HSV) |
-| `dominant_saturation` | float | Primary saturation value (0–255) |
-| `dominant_value` | float | Primary brightness value (0–255) |
-| `calibration_date` | datetime | When profile was created |
-| `confidence_level` | float | Quality of the calibration (0.0–1.0) |
-| `created_at` | datetime | Record creation timestamp |
+DeepSORT's built-in Kalman filter tracks:
 
----
+```
+State: [cx, cy, a, h, vcx, vcy, va, vh]
+  cx, cy — center x, y
+  a      — aspect ratio (width / height)
+  h      — height
+  vcx, vcy, va, vh — velocities (derivatives)
+```
 
-## 13. Performance Targets & Benchmarking
+### Gap Filling
 
-### Target Metrics
+When a track has no matching detection, DeepSORT uses the Kalman prediction and marks the track as "tentative" until a detection is matched within `max_age` frames:
 
-| Metric | Target | Measurement Method |
-|--------|--------|--------------------|
-| Detection mAP@0.5 | > 95 % | YOLOv8 validation set |
-| Tracking ID consistency | > 90 % | MOTA / IDF1 on annotated clips |
-| Team identification accuracy | > 95 % | Ground truth video annotation |
-| Frame processing speed (CPU) | ≥ 15 FPS | `time.perf_counter()` per frame |
-| Frame processing speed (GPU) | ≥ 60 FPS | Same measurement |
-| Per-frame latency | < 100 ms | Wall-clock time |
-| Memory per worker | < 2 GB | `psutil` resident memory |
-
-### Benchmarking Procedure
-
-1. Curate a benchmark video set: 5 different FRC events, 3 matches each
-2. Annotate ground truth: team position per frame, correct team ID per track
-3. Run pipeline on benchmark set with metrics instrumentation
-4. Compare per-method accuracy breakdown (OCR-only, color-only, tracking-only)
-5. Run under varied conditions:
-   - Different lighting (bright arena vs. dim practice field)
-   - Fast robot movement (≥ 4 m/s)
-   - Heavily occluded periods (autonomous near scoring zones)
-   - Low team number visibility (robot rotated away from camera)
+```python
+# Rows written for Kalman-predicted frames are flagged as interpolated
+def write_movement_track_row(
+    self, robot: TrackedRobot, frame_number: int, match_id: int
+) -> MovementTrackCreate:
+    return MovementTrackCreate(
+        match_id=match_id,
+        team_id=robot.team_number,
+        frame_number=frame_number,
+        timestamp_ms=frame_number * self.frame_interval_ms,
+        pixel_x=robot.bbox_center_x,
+        pixel_y=robot.bbox_center_y,
+        field_x=robot.field_x,
+        field_y=robot.field_y,
+        track_id=robot.track_id,
+        identification_method=robot.identification_method,
+        confidence_score=robot.confidence,
+        team_number_visible=robot.team_number_visible,
+        interpolated=robot.is_predicted,      # True = Kalman prediction
+        configuration_changed=robot.configuration_changed,
+        bounding_box_size_change=robot.bbox_size_change,
+        flagged_for_review=robot.flagged,
+        review_reason=robot.flag_reason,
+    )
+```
 
 ---
 
-## 14. Error Handling & Recovery
+## 10. Perspective Transform & Field Coordinate Mapping
 
-### Error Scenarios & Solutions
+### FRC Field Dimensions
 
-#### 1. Detection Failure (no robots found in frame)
+- Full field: 54 ft × 27 ft (16.46 m × 8.23 m)
+- Robot starting positions, scoring zones, and field elements are in fixed locations per season
 
-- **Cause:** YOLO confidence below threshold; frame blur; unusual lighting
-- **Action:** Kalman-predict all active tracks; mark all as `interpolated = True`
-- **Escalation:** if detection failure persists > 30 frames, flag all tracks for review
+### Calibration Procedure
 
-#### 2. OCR Failure
+```python
+# backend/app/services/cv/perspective.py
+import cv2
+import numpy as np
 
-- **Cause:** team number not visible, low resolution, motion blur
-- **Action:** fall back to color matching → DeepSORT tracking → Kalman prediction
-- **Logging:** record OCR attempt result with confidence in task log
+class FieldPerspectiveTransform:
+    """
+    Calibrates the pixel-to-field transform once per camera angle per season.
+    Uses fixed field elements (corner posts, alliance stations) as calibration anchors.
+    """
+    # FRC 2024 Crescendo field corners in real-world coordinates (ft)
+    FIELD_ANCHOR_POINTS_FT = np.float32([
+        [0.0,  0.0],   # Blue alliance corner, near side
+        [54.0, 0.0],   # Red alliance corner, near side
+        [54.0, 27.0],  # Red alliance corner, far side
+        [0.0,  27.0],  # Blue alliance corner, far side
+    ])
 
-#### 3. Track Fragmentation
+    def calibrate(self, frame: np.ndarray) -> np.ndarray:
+        """
+        Interactive calibration: user clicks 4 field corner points.
+        Returns the perspective transformation matrix M.
+        """
+        print("Click the 4 field corners in order: BL, BR, TR, TL")
+        pixel_points = self._get_user_clicks(frame, n=4)
+        pixel_pts = np.float32(pixel_points)
 
-- **Cause:** DeepSORT drops a track due to prolonged occlusion
-- **Action:** run re-identification algorithm on new track appearance; attempt to merge with historical team assignment
-- **Fallback:** if re-identification fails, assign `team_id = None` until confirmed
+        # Scale field coordinates to image-like scale for numerical stability
+        SCALE = 20  # pixels per foot
+        field_pts = self.FIELD_ANCHOR_POINTS_FT * SCALE
 
-#### 4. Configuration Change
+        M = cv2.getPerspectiveTransform(pixel_pts, field_pts)
+        return M
 
-- **Cause:** robot deploys/retracts a mechanism (elevator, arm, intake)
-- **Action:** re-run OCR + color identification; maintain track ID
-- **Fallback:** if re-identification fails, flag for review with `review_reason = "configuration_change"`
+    def apply(
+        self, pixel_x: float, pixel_y: float, M: np.ndarray
+    ) -> tuple[float, float]:
+        """Transform a pixel (x, y) to field coordinates (ft)."""
+        point = np.array([[[pixel_x, pixel_y]]], dtype=np.float32)
+        transformed = cv2.perspectiveTransform(point, M)
+        SCALE = 20
+        field_x = float(transformed[0][0][0]) / SCALE
+        field_y = float(transformed[0][0][1]) / SCALE
+        return field_x, field_y
 
-#### 5. Off-Field Robot
+    def validate_field_bounds(
+        self, field_x: float, field_y: float
+    ) -> bool:
+        """Verify transformed coordinates are within field boundaries."""
+        # Add 2 ft margin for robots partially outside the field
+        return -2.0 <= field_x <= 56.0 and -2.0 <= field_y <= 29.0
+```
 
-- **Cause:** robot tips over, is penalized and removed, or goes out of camera view
-- **Action:** mark track as `off_field = True`; suspend Kalman prediction
-- **Resume:** when detection reappears near last in-bounds position
+### Perspective Matrix Storage
 
-### Logging & Debugging
+The calibration matrix `M` is stored per event and camera angle:
 
-- Every identification decision is logged: `(frame_number, track_id, method, confidence, team_id)`
-- Frame-by-frame debug mode: write annotated frames to a temporary directory
-- Visualization: bounding boxes with team IDs, method indicator, and confidence score overlaid
-- Performance metrics: collected per-frame and summarized at task completion
+```python
+# Database: EventCameraCalibration model
+class EventCameraCalibration(Base):
+    __tablename__ = "event_camera_calibration"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("event.id"))
+    camera_position: Mapped[str]      # e.g., "overhead_center", "red_alliance_wall"
+    perspective_matrix: Mapped[list]  # 3×3 matrix stored as JSON
+    calibrated_at: Mapped[datetime]
+    calibrated_by: Mapped[str]        # Scout username
+    active: Mapped[bool] = mapped_column(default=True)
+```
 
 ---
 
-## 15. Testing & Validation
+## 11. MovementTrack Data Model
+
+### Extended Schema
+
+The `MovementTrack` model is extended beyond the basic coordinates to capture identification metadata:
+
+```python
+# backend/app/models/movement_track.py
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import ForeignKey, String, Float, Boolean, Integer
+from app.models.base import Base
+import enum
+
+class IdentificationMethod(str, enum.Enum):
+    OCR = "OCR"
+    OCR_POST_CONFIG_CHANGE = "OCR_post_config_change"
+    OCR_MULTI_FRAME_VOTE = "OCR_MultiFrameVote"
+    DEEPSORT = "DeepSORT"
+    COLOR = "Color"
+    COLOR_POST_CONFIG_CHANGE = "Color_post_config_change"
+    SPATIAL = "Spatial"
+    TRACK_CONTINUITY_POST_CONFIG = "TrackContinuity_post_config_change"
+    KALMAN = "Kalman"
+    UNKNOWN = "UNKNOWN"
+
+class MovementTrack(Base):
+    __tablename__ = "movement_track"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("match.id"), index=True)
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("team.id"), nullable=True)
+    track_id: Mapped[int]            # DeepSORT internal track ID (per video)
+
+    # Position data
+    frame_number: Mapped[int]
+    timestamp_ms: Mapped[int]        # Milliseconds from match start
+    pixel_x: Mapped[float]
+    pixel_y: Mapped[float]
+    field_x: Mapped[float | None]    # Field coordinates in feet (post-transform)
+    field_y: Mapped[float | None]
+
+    # Identification tracking
+    identification_method: Mapped[str] = mapped_column(
+        String(64), default=IdentificationMethod.UNKNOWN
+    )
+    confidence_score: Mapped[float] = mapped_column(Float, default=0.0)
+    team_number_visible: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Configuration change tracking
+    bounding_box_width: Mapped[float | None]
+    bounding_box_height: Mapped[float | None]
+    bounding_box_size_change: Mapped[float] = mapped_column(Float, default=0.0)
+    configuration_changed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Data quality flags
+    interpolated: Mapped[bool] = mapped_column(Boolean, default=False)
+    flagged_for_review: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    review_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    manually_corrected: Mapped[bool] = mapped_column(Boolean, default=False)
+    corrected_team_id: Mapped[int | None] = mapped_column(
+        ForeignKey("team.id"), nullable=True
+    )
+```
+
+---
+
+## 12. Video Processor Implementation
+
+### Main Orchestrator
+
+```python
+# backend/app/services/video_processor.py
+import cv2
+import numpy as np
+from pathlib import Path
+from typing import Generator
+import logging
+
+from app.services.cv.detector import RobotDetector
+from app.services.cv.tracker import RobotTracker
+from app.services.cv.team_identifier import TeamIdentifier
+from app.services.cv.perspective import FieldPerspectiveTransform
+from app.models.movement_track import MovementTrackCreate
+
+logger = logging.getLogger(__name__)
+
+class VideoProcessor:
+    DEFAULT_FPS = 10       # Extract 10 frames per second
+    BATCH_SIZE = 100       # Write MovementTrack rows in batches
+
+    def __init__(
+        self,
+        model_path: str,
+        calibration_matrix: np.ndarray | None = None,
+        processing_fps: int = DEFAULT_FPS,
+    ):
+        self.detector = RobotDetector(model_path)
+        self.tracker = RobotTracker()
+        self.identifier = TeamIdentifier()
+        self.transform = FieldPerspectiveTransform(calibration_matrix)
+        self.processing_fps = processing_fps
+
+    def process_video(
+        self,
+        video_path: Path,
+        match_id: int,
+        alliance_teams: dict[str, list[int]],  # {"red": [254, 1678, 118], "blue": [...]}
+        progress_callback=None,
+    ) -> list[MovementTrackCreate]:
+        cap = cv2.VideoCapture(str(video_path))
+        source_fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_interval = max(1, int(source_fps / self.processing_fps))
+
+        all_tracks: list[MovementTrackCreate] = []
+        frame_number = 0
+        processed_count = 0
+
+        try:
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                frame_number += 1
+
+                # Skip frames to achieve target FPS
+                if frame_number % frame_interval != 0:
+                    continue
+
+                # Stage 1: Detect robots
+                detections = self.detector.detect(frame)
+                robot_detections = [
+                    d for d in detections
+                    if d.class_name in ("robot_red", "robot_blue")
+                ]
+
+                if not robot_detections:
+                    processed_count += 1
+                    continue
+
+                # Stage 2: Identify teams
+                identifications = self.identifier.identify_all(
+                    frame, robot_detections, alliance_teams, frame_number
+                )
+
+                # Stage 3: Track
+                tracked_robots = self.tracker.update(
+                    frame, robot_detections, identifications
+                )
+
+                # Stage 4: Transform coordinates
+                for robot in tracked_robots:
+                    robot.field_x, robot.field_y = self.transform.apply(
+                        robot.bbox_center_x, robot.bbox_center_y
+                    )
+
+                # Stage 5: Create track records
+                batch = [
+                    self._to_movement_track(robot, frame_number, match_id)
+                    for robot in tracked_robots
+                ]
+                all_tracks.extend(batch)
+
+                processed_count += 1
+
+                # Report progress every 50 processed frames
+                if progress_callback and processed_count % 50 == 0:
+                    progress_callback(
+                        processed=processed_count,
+                        total=total_frames // frame_interval,
+                        stage="tracking",
+                    )
+
+        finally:
+            cap.release()
+
+        logger.info(
+            "Video processing complete: %d frames processed, "
+            "%d movement track rows created",
+            processed_count, len(all_tracks),
+        )
+        return all_tracks
+
+    def _to_movement_track(
+        self, robot, frame_number: int, match_id: int
+    ) -> MovementTrackCreate:
+        return MovementTrackCreate(
+            match_id=match_id,
+            team_id=robot.team_number,
+            track_id=robot.track_id,
+            frame_number=frame_number,
+            timestamp_ms=int(frame_number * (1000 / self.processing_fps)),
+            pixel_x=robot.bbox_center_x,
+            pixel_y=robot.bbox_center_y,
+            field_x=robot.field_x,
+            field_y=robot.field_y,
+            bounding_box_width=robot.bbox_width,
+            bounding_box_height=robot.bbox_height,
+            bounding_box_size_change=robot.bbox_size_change,
+            identification_method=robot.identification_method,
+            confidence_score=robot.confidence,
+            team_number_visible=robot.team_number_visible,
+            configuration_changed=robot.configuration_changed,
+            interpolated=robot.is_predicted,
+            flagged_for_review=robot.flagged,
+            review_reason=robot.flag_reason,
+        )
+```
+
+---
+
+## 13. Celery Task Integration
+
+```python
+# backend/app/tasks/video_tasks.py
+from celery import current_task
+import boto3
+import tempfile
+from pathlib import Path
+
+from app.celery_app import celery_app
+from app.services.video_processor import VideoProcessor
+from app.database import get_sync_session
+from app.crud.movement_track import bulk_create_movement_tracks
+from app.crud.event_calibration import get_calibration_for_event
+
+@celery_app.task(
+    bind=True,
+    name="video_tasks.process_video_file",
+    queue="video",
+    max_retries=3,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    task_acks_late=True,
+)
+def process_video_file(
+    self,
+    match_id: int,
+    s3_key: str,
+    alliance_teams: dict[str, list[int]],
+    event_id: int,
+) -> dict:
+    """
+    Download match video from S3, run full CV pipeline,
+    and persist MovementTrack rows to the database.
+    """
+    def update_progress(processed: int, total: int, stage: str) -> None:
+        self.update_state(
+            state="PROGRESS",
+            meta={
+                "processed_frames": processed,
+                "total_frames": total,
+                "stage": stage,
+                "percent": int(processed / max(total, 1) * 100),
+            },
+        )
+
+    update_progress(0, 100, "downloading")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        video_path = Path(tmpdir) / "match_video.mp4"
+
+        # Download from S3
+        s3 = boto3.client("s3")
+        s3.download_file(
+            Bucket=settings.S3_BUCKET_VIDEOS,
+            Key=s3_key,
+            Filename=str(video_path),
+        )
+
+        update_progress(0, 100, "loading_calibration")
+
+        # Load perspective calibration for this event
+        with get_sync_session() as db:
+            calibration = get_calibration_for_event(db, event_id)
+            matrix = np.array(calibration.perspective_matrix) if calibration else None
+
+        update_progress(0, 100, "processing")
+
+        # Run the CV pipeline
+        processor = VideoProcessor(
+            model_path=settings.YOLO_MODEL_PATH,
+            calibration_matrix=matrix,
+        )
+        movement_tracks = processor.process_video(
+            video_path=video_path,
+            match_id=match_id,
+            alliance_teams=alliance_teams,
+            progress_callback=update_progress,
+        )
+
+        update_progress(len(movement_tracks), len(movement_tracks), "saving")
+
+        # Persist to database in batches
+        with get_sync_session() as db:
+            saved_count = bulk_create_movement_tracks(db, movement_tracks)
+
+    # Trigger analytics computation
+    from app.tasks.analytics_tasks import compute_robot_performance
+    compute_robot_performance.delay(match_id)
+
+    return {
+        "match_id": match_id,
+        "movement_tracks_saved": saved_count,
+        "flagged_tracks": sum(1 for t in movement_tracks if t.flagged_for_review),
+        "status": "complete",
+    }
+```
+
+---
+
+## 14. Confidence Scoring & Flagging for Review
+
+### Confidence Thresholds
+
+| Method | Min. Confidence to Use | Flag if Below |
+|--------|----------------------|---------------|
+| OCR | 0.80 | Flag if 0.65–0.80; discard if < 0.65 |
+| OCR Multi-Frame Vote | 0.60 | Flag if < 0.80 |
+| DeepSORT (existing track) | 0.85 (assumed) | Never flag unless conflict |
+| Color matching | 0.55 | Flag if 0.55–0.70 |
+| Spatial constraint | 0.65 | Always flag |
+| Kalman prediction | 0.70 | Flag if gap > 3 frames |
+| UNKNOWN | N/A | Always flag |
+
+### Flag Reasons Reference
+
+| Flag Reason | Description |
+|------------|-------------|
+| `low_confidence_ocr` | OCR read team number but confidence < 0.80 |
+| `team_number_unreadable` | All identification methods except color/spatial failed |
+| `identity_conflict_after_config_change` | OCR team number ≠ track history after mechanism deployment |
+| `identity_conflict_no_majority` | Multi-frame voting failed to reach 3/5 majority |
+| `configuration_change_assumed_same_team` | No OCR confirmation after configuration change |
+| `low_confidence_spatial_only` | Only spatial constraint available; no color profile |
+| `all_identification_methods_failed` | No method produced a match above thresholds |
+| `track_gap_exceeded` | Robot not detected for > 3 frames (> 0.3 sec) |
+
+---
+
+## 15. Manual Review Dashboard
+
+### Review Interface Specification
+
+The review dashboard allows coaches and scouts to correct uncertain tracking data post-match:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Match #42 — Flagged Tracks Review                     [5 flagged]  │
+├──────────────────────────────────────────────────────────────────────┤
+│  Filters: [Team ▼] [Method ▼] [Confidence < 0.7 ▼] [Unreviewed ▼] │
+├──────────────────────────────────────────────────────────────────────┤
+│  Frame 312–325  │  Track #3  │  Team: 254? (conf: 0.62)             │
+│  ─────────────────────────────────────────────────────────────────  │
+│  [◀ Prev] [▶ Play] [▶ Next]    Reason: identity_conflict_no_majority│
+│                                                                      │
+│  ┌──────────────────────────────┐  Correct to:                      │
+│  │  [Video Frame Preview]       │  ⊙ Team 254   ○ Team 1678        │
+│  │  [Bounding box highlighted]  │  ○ Team 118   ○ Unknown           │
+│  │  [Alliance colors shown]     │                                   │
+│  └──────────────────────────────┘  [Apply Correction] [Skip]        │
+├──────────────────────────────────────────────────────────────────────┤
+│  Frame 445–448  │  Track #5  │  Team: Unknown (conf: 0.0)           │
+│  Reason: all_identification_methods_failed                           │
+│  [◀ Prev] [▶ Play] [▶ Next]                                         │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### API Endpoints for Review
+
+```python
+# GET /api/v1/matches/{match_id}/flagged-tracks
+# Returns all MovementTrack rows with flagged_for_review=True for a match
+
+# PATCH /api/v1/movement-tracks/{track_id}/correct
+# Body: {"correct_team_id": 254}
+# Sets manually_corrected=True, corrected_team_id=254 on the row
+```
+
+---
+
+## 16. Accuracy Metrics & Validation
+
+### Metrics Collected Per Processed Video
+
+```python
+# backend/app/services/cv/metrics.py
+@dataclass
+class PipelineMetrics:
+    # Detection
+    total_frames_processed: int
+    total_detections: int
+    avg_detections_per_frame: float
+
+    # Identification
+    identified_by_ocr: int
+    identified_by_deepsort: int
+    identified_by_color: int
+    identified_by_spatial: int
+    identified_by_kalman: int
+    identified_unknown: int
+
+    # Confidence
+    avg_confidence_score: float
+    low_confidence_rate: float    # % of rows with confidence < 0.7
+
+    # Issues
+    config_changes_detected: int
+    interpolated_frames: int
+    flagged_for_review: int
+    flagged_rate: float           # flagged_for_review / total rows
+
+    # Track quality
+    track_fragmentation: int      # Unique track IDs per team (should be 1)
+    coverage_rate: float          # % of match duration with all 6 robots tracked
+```
+
+### Ground-Truth Validation (Offline)
+
+For model evaluation, a hand-annotated validation set is used:
+
+```bash
+# Annotate validation videos with known team assignments
+python scripts/annotate_ground_truth.py \
+  --video validation_data/2024necmp_qm12.mp4 \
+  --output validation_data/2024necmp_qm12_gt.json
+
+# Run pipeline and compare to ground truth
+python scripts/evaluate_pipeline.py \
+  --video validation_data/2024necmp_qm12.mp4 \
+  --ground_truth validation_data/2024necmp_qm12_gt.json \
+  --model runs/train/frc_2024_v1/weights/best.pt
+
+# Output:
+# Team ID accuracy:          94.2%
+# Track fragmentation rate:   2.1%  (should be < 5%)
+# Coverage rate:             97.8%  (should be > 95%)
+# Flagged rate:               8.3%  (acceptable: < 15%)
+```
+
+---
+
+## 17. Model Training & Fine-Tuning
+
+### Dataset Requirements
+
+| Dataset | Size | Source |
+|---------|------|--------|
+| FRC robot images (2024) | 5,000+ images | TBA video frames, manually annotated |
+| Robot configuration variety | 1,000+ images | Various mechanism states per top-25 teams |
+| Poor lighting conditions | 500+ images | Arena-specific lighting compensation |
+| Occlusion scenarios | 500+ images | Robots overlapping, partial views |
+
+### Annotation Guidelines
+
+```yaml
+# Label format: YOLO format (class_id cx cy w h normalized)
+# Classes:
+#   0: robot_red   — Red alliance bumpers visible
+#   1: robot_blue  — Blue alliance bumpers visible
+#   2: game_piece  — Current season game piece (changes annually)
+#   3: field_element — Permanent field structure
+
+# Important annotation rules:
+# - Annotate FULL robot extent including deployed mechanisms
+# - Label class based on bumper color, not robot position
+# - For partially occluded robots: annotate the visible portion + estimated full bbox
+# - Minimum bounding box: 20×20 pixels
+```
+
+### Training Pipeline
+
+```bash
+# 1. Prepare dataset splits (80/10/10)
+python scripts/split_dataset.py \
+  --source datasets/frc_raw \
+  --output datasets/frc_2024 \
+  --split 0.8 0.1 0.1
+
+# 2. Fine-tune from COCO pre-trained weights
+yolo train \
+  model=yolov8m.pt \
+  data=datasets/frc_2024/dataset.yaml \
+  epochs=100 \
+  imgsz=640 \
+  batch=16 \
+  device=0 \
+  patience=20 \
+  save_period=10 \
+  project=runs/train \
+  name=frc_2024_v1
+
+# 3. Validate on held-out test set
+yolo val \
+  model=runs/train/frc_2024_v1/weights/best.pt \
+  data=datasets/frc_2024/dataset.yaml \
+  split=test
+
+# 4. Export to ONNX for production (faster CPU inference)
+yolo export \
+  model=runs/train/frc_2024_v1/weights/best.pt \
+  format=onnx \
+  opset=12
+```
+
+### Annual Retraining Schedule
+
+FRC changes its game (and field elements, game pieces) every year. Model updates are required:
+
+| Trigger | Action |
+|---------|--------|
+| New FRC season announced (January) | Collect annotation data from reveal video and CAD models |
+| Kickoff + first events (January–February) | Fine-tune existing model on new season images |
+| First regional events (February–March) | Validate on live event footage; retrain if mAP drops > 5% |
+| Championship (April–May) | Final validation; freeze model for the season |
+
+---
+
+## 18. GPU Infrastructure
+
+### Instance Selection
+
+| Use Case | Instance Type | GPU | vRAM | Cost |
+|----------|-------------|-----|------|------|
+| Production CV processing | `g4dn.xlarge` (AWS) | NVIDIA T4 | 16 GB | ~$0.53/hr on-demand; ~$0.16/hr Spot |
+| Development / testing | `g4dn.xlarge` Spot | NVIDIA T4 | 16 GB | ~$0.16/hr |
+| High-volume (finals) | `g5.xlarge` | NVIDIA A10G | 24 GB | ~$1.01/hr Spot |
+
+### Docker GPU Setup
+
+```dockerfile
+# Dockerfile.cv-worker
+FROM nvidia/cuda:12.1-cudnn8-runtime-ubuntu22.04
+
+RUN apt-get update && apt-get install -y \
+    python3.11 python3-pip ffmpeg libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["celery", "-A", "app.celery_app", "worker", \
+     "-Q", "video", \
+     "-c", "1", \
+     "--loglevel=info"]
+```
+
+```yaml
+# docker-compose.yml — GPU worker service
+celery-gpu-worker:
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.cv-worker
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+  environment:
+    - CUDA_VISIBLE_DEVICES=0
+```
+
+### CPU Fallback
+
+```python
+# Automatically detected in detector.py
+import torch
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+# If running on CPU: use YOLOv8n (nano) for speed; GPU: use YOLOv8m (medium)
+model_variant = "yolov8m" if device == "cuda" else "yolov8n"
+```
+
+---
+
+## 19. Performance Benchmarks
+
+### Target Processing Times
+
+| Configuration | Frames/sec | Time for 150s match (10 FPS = 1500 frames) |
+|--------------|-----------|----------------------------------------------|
+| NVIDIA T4 (g4dn.xlarge) | ~60 FPS | ~25 seconds |
+| NVIDIA A10G (g5.xlarge) | ~120 FPS | ~12 seconds |
+| CPU only (t3.medium) | ~5 FPS | ~5 minutes |
+
+### Optimization Techniques
+
+```python
+# 1. FP16 inference (half precision — 2× speedup on modern GPUs)
+model = YOLO("yolov8m.pt")
+model.half()  # Convert to FP16
+
+# 2. Batch inference (process multiple frames simultaneously)
+results = model(frames_batch, batch=8)  # Process 8 frames in one pass
+
+# 3. ONNX Runtime for CPU inference (3× faster than PyTorch CPU)
+from ultralytics import YOLO
+model = YOLO("best.onnx")  # ONNX model for CPU workers
+
+# 4. Frame skip optimization — only run full detection every N frames
+# Run tracking (DeepSORT only) on intermediate frames
+```
+
+---
+
+## 20. Testing Strategy
 
 ### Unit Tests
 
-| Test | What to Verify |
-|------|---------------|
-| `test_detection_accuracy` | YOLOv8 detects all 6 robots in a synthetic frame |
-| `test_ocr_known_numbers` | OCR correctly reads team numbers from 50 labeled crops |
-| `test_color_matching` | Color profiles match correct teams in 20 profile pairs |
-| `test_kalman_prediction` | Predicted position within 0.5 m of true position after 5-frame gap |
-| `test_perspective_transform` | Field coordinates within 0.1 m of ground truth for 10 corner points |
-| `test_configuration_change` | 30 % area change triggers `configuration_changed = True` |
+```python
+# backend/tests/cv/test_ocr_reader.py
+import pytest
+from app.services.cv.ocr_reader import TeamNumberOCR
+
+class TestTeamNumberOCR:
+    def test_reads_valid_team_number(self, sample_bumper_frame):
+        ocr = TeamNumberOCR()
+        result = ocr.read_team_number(sample_bumper_frame["frame"], sample_bumper_frame["bbox"])
+        assert result.team_number == sample_bumper_frame["expected_team"]
+        assert result.confidence > 0.8
+
+    def test_returns_none_for_rotated_robot(self, rotated_robot_frame):
+        ocr = TeamNumberOCR()
+        result = ocr.read_team_number(rotated_robot_frame["frame"], rotated_robot_frame["bbox"])
+        # Should fail gracefully, not raise
+        assert result.team_number is None or result.confidence < 0.5
+
+    def test_rejects_out_of_range_numbers(self, frame_with_text_10000):
+        ocr = TeamNumberOCR()
+        result = ocr.read_team_number(frame_with_text_10000["frame"], frame_with_text_10000["bbox"])
+        assert result.team_number is None
+
+# backend/tests/cv/test_color_matcher.py
+class TestColorMatcher:
+    def test_matches_calibrated_team(self, calibrated_matcher, sample_frame):
+        team, conf = calibrated_matcher.match(
+            sample_frame["frame"],
+            sample_frame["bbox_team_254"],
+            candidate_teams=[254, 1678, 118],
+        )
+        assert team == 254
+        assert conf > 0.55
+
+    def test_returns_none_when_uncalibrated(self, uncalibrated_matcher, sample_frame):
+        team, conf = uncalibrated_matcher.match(
+            sample_frame["frame"],
+            sample_frame["bbox_team_254"],
+            candidate_teams=[254],
+        )
+        assert team is None
+```
 
 ### Integration Tests
 
-| Test | What to Verify |
-|------|---------------|
-| `test_pipeline_short_video` | 30-second synthetic video produces correct MovementTrack rows |
-| `test_multi_method_fusion` | When OCR fails, system falls back to color matching correctly |
-| `test_track_fragmentation` | Track re-identification works after a 10-frame gap |
-| `test_db_batch_insert` | 1 000 MovementTrack rows inserted without errors |
-| `test_error_recovery` | Corrupted frame does not crash the pipeline |
+```python
+# backend/tests/test_video_pipeline.py
+class TestVideoPipeline:
+    def test_process_synthetic_video(self, synthetic_match_video, db_session):
+        """
+        Synthetic video: 30-second clip with 6 colored rectangles
+        representing robots with known team number labels.
+        """
+        processor = VideoProcessor(model_path="tests/fixtures/test_model.pt")
+        tracks = processor.process_video(
+            video_path=synthetic_match_video,
+            match_id=1,
+            alliance_teams={"red": [254, 1678, 118], "blue": [148, 1114, 33]},
+        )
 
-### Validation Tests
+        # Verify all 6 robots tracked
+        unique_teams = {t.team_id for t in tracks if t.team_id is not None}
+        assert len(unique_teams) == 6
 
-| Test | What to Verify |
-|------|---------------|
-| `validate_ground_truth_match` | ≥ 95 % team ID accuracy on 3 annotated matches |
-| `validate_flagged_cases` | Flagged cases are all genuinely ambiguous |
-| `validate_accuracy_stats` | Accuracy statistics report generates correctly |
-| `validate_performance_profile` | Processing speed ≥ 15 FPS on standard hardware |
+        # Verify field coordinates within bounds
+        for track in tracks:
+            if track.field_x is not None:
+                assert -2.0 <= track.field_x <= 56.0
+                assert -2.0 <= track.field_y <= 29.0
 
-### Test Data Requirements
+        # Verify flagged rate is acceptable
+        flagged_rate = sum(1 for t in tracks if t.flagged_for_review) / len(tracks)
+        assert flagged_rate < 0.15  # Less than 15% of rows flagged
 
-- 5+ different FRC game years
-- Various lighting conditions (bright, dim, mixed)
-- Various robot configurations (pre-deploy, mid-deploy, fully deployed)
-- Team number visibility coverage (0 %, 30 %, 60 %, 100 % frames visible)
+    def test_handles_corrupt_video_gracefully(self, corrupt_video_path):
+        processor = VideoProcessor(model_path="tests/fixtures/test_model.pt")
+        with pytest.raises(VideoProcessingError, match="corrupt"):
+            processor.process_video(corrupt_video_path, match_id=1, alliance_teams={})
+```
 
----
+### Acceptance Criteria Summary
 
-## 16. Configuration & Tuning
-
-### Tunable Parameters
-
-| Parameter | Default | Allowed Range | Effect |
-|-----------|---------|---------------|--------|
-| `YOLO_CONFIDENCE_THRESHOLD` | 0.45 | 0.3–0.7 | Detection sensitivity |
-| `YOLO_NMS_IOU_THRESHOLD` | 0.40 | 0.3–0.5 | Duplicate suppression |
-| `DEEPSORT_MAX_AGE` | 15 | 5–30 | Track survival without detection |
-| `DEEPSORT_MIN_HITS` | 2 | 1–3 | Confirmations before track accepted |
-| `OCR_CONFIDENCE_THRESHOLD` | 0.80 | 0.7–0.95 | OCR acceptance cutoff |
-| `COLOR_MATCH_THRESHOLD` | 0.65 | 0.4–0.8 | Bhattacharyya similarity cutoff |
-| `SIZE_CHANGE_THRESHOLD_PCT` | 30 | 20–50 | Bounding box change to flag config change |
-| `MAX_GAP_FRAMES` | 15 | 5–30 | Frames before track is terminated |
-| `FRAME_SAMPLE_RATE` | 1 | 1–5 | 1 = every frame; N = every Nth frame |
-
-All parameters are configurable via environment variables or a YAML config file per event.
-
-### Per-Event Calibration
-
-| Step | Description |
-|------|-------------|
-| Color profile registration | Operator confirms robot → team assignment in first 10 s of match |
-| Perspective matrix calibration | Four field corner points mapped from video to field coordinates |
-| Game-specific constraints | Field boundary coordinates for the current FRC season |
-| Team number validation list | Event team roster loaded from TBA; used to validate OCR output |
-
----
-
-## 17. Hardware & Software Requirements
-
-### Software Dependencies
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| Python | 3.9+ | Runtime |
-| OpenCV | 4.5+ | Frame extraction, image processing |
-| PyTorch | 2.0+ | YOLOv8 inference backend |
-| ultralytics | 8.0+ | YOLOv8 model API |
-| deep-sort-realtime | 1.3+ | DeepSORT tracker |
-| EasyOCR | 1.6+ | Primary OCR engine |
-| Tesseract / pytesseract | 5.0+ / 0.3+ | Fallback OCR engine |
-| SQLAlchemy | 2.0+ | Database ORM |
-| Celery | 5.3+ | Background task execution |
-| NumPy | 1.24+ | Numerical operations |
-| Pillow | 9.0+ | Image utility |
-
-### Hardware — CPU Only
-
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| CPU | 4 cores | 8+ cores |
-| RAM | 8 GB | 16 GB |
-| Storage | 50 GB | 200 GB (video files) |
-| Estimated processing time | 2–5 min / match | 1–2 min / match |
-
-### Hardware — GPU Accelerated (Optional)
-
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| GPU | NVIDIA GTX 1060 (CUDA 11.8) | NVIDIA RTX 3060 or better |
-| VRAM | 4 GB | 8 GB |
-| Estimated processing time | 30–60 s / match | 15–30 s / match |
-
-GPU acceleration provides an estimated 5–10× speedup over CPU-only processing.
-
----
-
-## 18. Phase 2 Integration
-
-### Tier 2 Implementation
-
-This strategy document directly informs the following Tier 2 implementation components:
-
-| Component | File | Strategy Section |
-|-----------|------|-----------------|
-| YOLOv8 detection | `backend/app/services/video_processor.py` | §3 |
-| DeepSORT tracker | `backend/app/services/video_processor.py` | §4 |
-| OCR identification | `backend/app/services/identification_service.py` | §5 |
-| Color matching | `backend/app/services/identification_service.py` | §6 |
-| Kalman filter | `backend/app/services/kalman_tracker.py` | §7 |
-| Configuration change detection | `backend/app/services/video_processor.py` | §8 |
-| Multi-method fusion | `backend/app/services/identification_service.py` | §10 |
-| Perspective transform | `backend/app/services/perspective_transform.py` | §11 |
-| MovementTrack model | `backend/app/models/movement_track.py` | §12 |
-| RobotColorProfile model | `backend/app/models/robot_color_profile.py` | §12 |
-| Celery task | `backend/app/tasks/video_tasks.py` | §11 |
-
-### Tier 3 Integration
-
-- Phase statistics computed from `MovementTrack.x_field` / `y_field` / `velocity`
-- Only records with `confidence_score ≥ 0.70` contribute to phase stats by default
-
-### Tier 4 Integration
-
-- Pre-computed heatmaps use `x_field` / `y_field` aggregated from `MovementTrack`
-- Heatmap cache invalidated when new `MovementTrack` rows are inserted for a match
-
----
-
-## 19. Future Enhancements & Scalability
-
-### Post-Phase 2 Improvements
-
-| Enhancement | Description |
-|------------|-------------|
-| Custom YOLOv8 fine-tuning | Transfer learning on FRC-specific dataset for higher mAP |
-| Ensemble tracking | Consensus between DeepSORT and ByteTrack for higher ID stability |
-| 3-D pose estimation | Estimate robot orientation from monocular video |
-| Real-time field visualization | Live robot positions streamed during matches |
-| Trajectory smoothing | Spline smoothing on recorded paths for cleaner heatmaps |
-| Active learning | Route hard cases to human annotators to iteratively improve the model |
-
-### Performance Optimization
-
-| Technique | Expected Gain |
-|-----------|-------------|
-| H.264/H.265 hardware decode | Faster frame extraction |
-| Batch GPU inference (N frames at once) | 2–4× throughput improvement |
-| INT8 model quantization | 2× speedup, < 1 % accuracy loss |
-| Model pruning | Smaller model size, faster loading |
-| Frame skipping (FRAME_SAMPLE_RATE > 1) | Linear reduction in processing time |
-
----
-
-## 20. Decision Records & Rationale
-
-| Decision | Alternatives Considered | Rationale |
-|----------|------------------------|-----------|
-| **YOLOv8** for detection | Faster R-CNN, SSD, RT-DETR | Best balance of speed, accuracy, and Python tooling; pretrained weights fine-tune quickly |
-| **DeepSORT** for tracking | ByteTrack, SORT, StrongSORT | Handles FRC robot count well; appearance features reduce ID switches during occlusion |
-| **Multi-method identification** | Single-method (OCR only) | No single method works in all conditions; fusion dramatically improves overall accuracy |
-| **Kalman filter** for prediction | Particle filter, MLP predictor | Simple, deterministic, efficient on CPU; constant-velocity model sufficient for FRC robots |
-| **EasyOCR** as primary OCR | Tesseract, PaddleOCR, TrOCR | Best accuracy without GPU; clean Python API; supports digit-only restriction |
-| **HSV + Bhattacharyya** for color | RGB histogram, CNN embeddings | HSV is lighting-invariant; Bhattacharyya distance is fast and well-understood |
-| **OCR confidence threshold = 0.80** | 0.70, 0.90 | 0.70 produces too many false positives; 0.90 rejects too many correct readings; 0.80 balances precision/recall |
-| **DeepSORT max_age = 15 frames** | 5, 30 | 5 frames too short for brief occlusions; 30 creates ghost tracks; 15 covers typical robot-to-robot occlusion duration |
-| **CPU-first design** | GPU-required | Most FRC teams do not have GPU servers; CPU-only must work; GPU is an optional speedup |
+| Criterion | Target |
+|-----------|--------|
+| Team ID accuracy (confirmed via OCR) | ≥ 92% on validation set |
+| Team ID accuracy (full pipeline) | ≥ 85% on validation set |
+| Track fragmentation rate | < 5% (< 0.05 extra tracks per team per match) |
+| Coverage rate (all 6 robots tracked) | > 95% of match frames |
+| Flagged-for-review rate | < 15% of total MovementTrack rows |
+| Processing speed (GPU) | 150-second match in < 60 seconds |
+| Processing speed (CPU fallback) | 150-second match in < 10 minutes |
+| Corrupt video handling | No worker crash; descriptive error returned |
