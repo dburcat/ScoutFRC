@@ -1,6 +1,6 @@
-# ScoutFRC
+# ScouterFRC
 
-**ScoutFRC** is an automated data collection and analytics system for the FIRST Robotics Competition (FRC). It provides alliance captains with objective, data-driven robot performance profiles for elimination picks — starting with a full-featured scouting dashboard and progressing to computer vision-based video analysis.
+**ScouterFRC** is an automated data collection and analytics system for the FIRST Robotics Competition (FRC). It provides alliance captains with objective, data-driven robot performance profiles for elimination picks — starting with a full-featured scouting dashboard and progressing to computer vision-based video analysis.
 
 ## Key Features (Planned)
 
@@ -22,7 +22,7 @@ Begin with **Phase 1** — the Core MVP Foundation. Follow the tiers in order:
 
 ## Development Roadmap
 
-ScoutFRC is built across **3 phases**, each containing **12 tiers**. Complete phases in order — Phase 3 is a future roadmap only.
+ScouterFRC is built across **3 phases**, each containing **12 tiers**. Complete phases in order — Phase 3 is a future roadmap only.
 
 ---
 
@@ -65,7 +65,7 @@ ScoutFRC is built across **3 phases**, each containing **12 tiers**. Complete ph
 > ⚠️ **DO NOT START PHASE 3 UNTIL PHASE 1 & 2 ARE COMPLETE**  
 > Phase 3 is a future roadmap. Current focus is Phase 1 and Phase 2.
 
-**Goal:** Expand ScoutFRC into a comprehensive FRC intelligence platform.
+**Goal:** Expand ScouterFRC into a comprehensive FRC intelligence platform.
 
 **Key Features:**
 - Multi-event management and organization support
