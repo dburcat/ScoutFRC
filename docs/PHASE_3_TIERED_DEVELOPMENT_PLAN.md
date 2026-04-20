@@ -1,6 +1,6 @@
 > ⚠️ PHASE 3 ROADMAP - DO NOT FOCUS ON YET
 >
-> This document outlines the Phase 3 roadmap for ScoutFRC ecosystem expansion.
+> This document outlines the Phase 3 roadmap for ScouterFRC ecosystem expansion.
 >
 > **IMPORTANT**: Phase 3 should NOT be started until Phase 1 and Phase 2 are fully complete and working correctly.
 >
@@ -10,7 +10,7 @@
 >
 > Phase 3 represents advanced features and ecosystem expansion and should be planned for AFTER Phase 1 and Phase 2 are production-ready.
 >
-> Use this document for planning and understanding the future direction of ScoutFRC, but prioritize Phase 1 and Phase 2 completion first.
+> Use this document for planning and understanding the future direction of ScouterFRC, but prioritize Phase 1 and Phase 2 completion first.
 
 ---
 
@@ -32,7 +32,7 @@ This document outlines the comprehensive development plan for **Phase 3 of Scout
 
 ### Tier 1: Multi-Event Management & Organization
 
-**Purpose:** Enable teams and organizations to manage multiple concurrent FRC events from a single ScoutFRC instance, with cross-event analytics and organizational hierarchy.
+**Purpose:** Enable teams and organizations to manage multiple concurrent FRC events from a single ScouterFRC instance, with cross-event analytics and organizational hierarchy.
 
 #### Tasks
 
@@ -44,7 +44,7 @@ This document outlines the comprehensive development plan for **Phase 3 of Scout
 1.6. Create **event comparison views** — compare team performance across different events  
 1.7. Build **multi-event reporting** — generate season-wide reports aggregating all event data  
 1.8. Implement **data import/export** between events for reuse of scouting notes  
-1.9. Support **simultaneous live events** — multiple teams using ScoutFRC at the same time  
+1.9. Support **simultaneous live events** — multiple teams using ScouterFRC at the same time  
 1.10. Write comprehensive tests for multi-tenancy, data isolation, and access control  
 
 #### Acceptance Criteria
@@ -180,7 +180,7 @@ This document outlines the comprehensive development plan for **Phase 3 of Scout
 
 ### Tier 4: Advanced Scouting Data Collection
 
-**Purpose:** Extend ScoutFRC's data collection capabilities with game-specific customizable forms, multi-scout consensus building, and structured pit scouting workflows.
+**Purpose:** Extend ScouterFRC's data collection capabilities with game-specific customizable forms, multi-scout consensus building, and structured pit scouting workflows.
 
 #### Tasks
 
@@ -230,7 +230,7 @@ This document outlines the comprehensive development plan for **Phase 3 of Scout
 
 ### Tier 5: Live Event Streaming & Commentary
 
-**Purpose:** Enable live video streaming of FRC matches directly within ScoutFRC, with synchronized real-time data overlays and optional AI-generated commentary.
+**Purpose:** Enable live video streaming of FRC matches directly within ScouterFRC, with synchronized real-time data overlays and optional AI-generated commentary.
 
 #### Tasks
 
@@ -247,7 +247,7 @@ This document outlines the comprehensive development plan for **Phase 3 of Scout
 
 #### Acceptance Criteria
 
-- ✅ Live streams embedded and playable within ScoutFRC
+- ✅ Live streams embedded and playable within ScouterFRC
 - ✅ Data overlays synchronized with live match clock within 500ms
 - ✅ Multi-camera switching functional without stream interruption
 - ✅ AI commentary generated and displayed in real time
@@ -285,14 +285,14 @@ This document outlines the comprehensive development plan for **Phase 3 of Scout
 
 #### Tasks
 
-6.1. Design and implement **plugin architecture** — allow third-party developers to build and publish ScoutFRC plugins  
+6.1. Design and implement **plugin architecture** — allow third-party developers to build and publish ScouterFRC plugins  
 6.2. Build **webhook system** — emit events (match completed, team ranked, prediction updated) to external systems  
 6.3. Create **public API marketplace** — documentation, sandbox, and API key management for third-party developers  
-6.4. Implement **Zapier/Make integration** — connect ScoutFRC with 1000+ external apps via automation platforms  
+6.4. Implement **Zapier/Make integration** — connect ScouterFRC with 1000+ external apps via automation platforms  
 6.5. Build **Slack/Discord integration** — post match alerts, team recommendations, and event updates to team channels  
 6.6. Create **Google Sheets/Excel export** — live sync scouting data to spreadsheets for traditional analysis workflows  
 6.7. Implement **data import connectors** — import historical data from Statbotics, FRC Events API, and custom spreadsheets  
-6.8. Build **OAuth provider** — allow other applications to authenticate via ScoutFRC credentials  
+6.8. Build **OAuth provider** — allow other applications to authenticate via ScouterFRC credentials  
 6.9. Implement **rate limiting and quota management** — prevent abuse of public APIs  
 6.10. Write tests for plugin lifecycle, webhook delivery, and API authentication  
 
@@ -382,7 +382,7 @@ This document outlines the comprehensive development plan for **Phase 3 of Scout
 
 ### Tier 8: Mobile App Native Implementation
 
-**Purpose:** Build native iOS and Android applications for ScoutFRC, enabling full-featured field scouting with device-native capabilities beyond what the Phase 2 PWA provides.
+**Purpose:** Build native iOS and Android applications for ScouterFRC, enabling full-featured field scouting with device-native capabilities beyond what the Phase 2 PWA provides.
 
 #### Tasks
 
@@ -534,7 +534,7 @@ This document outlines the comprehensive development plan for **Phase 3 of Scout
 
 ### Tier 11: Sustainability & Analytics Dashboard
 
-**Purpose:** Provide operational intelligence for ScoutFRC deployments — infrastructure cost tracking, usage analytics, environmental impact measurement, and system health visualization.
+**Purpose:** Provide operational intelligence for ScouterFRC deployments — infrastructure cost tracking, usage analytics, environmental impact measurement, and system health visualization.
 
 #### Tasks
 
@@ -585,7 +585,7 @@ This document outlines the comprehensive development plan for **Phase 3 of Scout
 
 ### Tier 12: Governance, Compliance & Future-Proofing
 
-**Purpose:** Establish formal governance structures, compliance frameworks, and architectural patterns to ensure ScoutFRC can scale sustainably and evolve over many future seasons.
+**Purpose:** Establish formal governance structures, compliance frameworks, and architectural patterns to ensure ScouterFRC can scale sustainably and evolve over many future seasons.
 
 #### Tasks
 
@@ -597,7 +597,7 @@ This document outlines the comprehensive development plan for **Phase 3 of Scout
 12.6. Create **security compliance framework** — SOC 2 Type II readiness, penetration testing, and vulnerability management  
 12.7. Implement **open-source governance** — contribution guidelines, code of conduct, CLA, and release management  
 12.8. Build **long-term data archival** — cold storage strategy for historical season data with retrieval capabilities  
-12.9. Create **platform migration tools** — utilities to migrate data between ScoutFRC versions and forks  
+12.9. Create **platform migration tools** — utilities to migrate data between ScouterFRC versions and forks  
 12.10. Write comprehensive governance documentation and conduct a formal Phase 3 completion review  
 
 #### Acceptance Criteria
