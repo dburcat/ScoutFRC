@@ -63,39 +63,49 @@ This document outlines the comprehensive development plan for **Phase 2 of Scout
 
 ### Tier 2: Video Processing Pipeline
 
-**Purpose:** Process uploaded match videos in the background, detect robots with YOLOv8, track them with DeepSORT, and persist movement trajectories to the database. Includes robust robot identification via OCR, color matching, and Kalman-based track continuity to handle rotation, occlusion, and mid-match configuration changes.
+**Purpose:** Process uploaded match videos in the background, detect robots with YOLOv8, track them with DeepSORT, identify each robot using a multi-method fusion strategy (OCR, color matching, Kalman prediction), and persist movement trajectories with full identification metadata to the database. Includes robust handling of rotation, occlusion, and mid-match configuration changes.
+
+> **Reference:** See `docs/COMPUTER_VISION_STRATEGY.md` for full implementation details.
 
 #### Tasks
 
-2.1. Install **YOLOv8** (`ultralytics`), **DeepSORT** (pip package: `deep-sort-realtime`; import: `deep_sort_realtime`), **EasyOCR** (`easyocr`), and **OpenCV** (`opencv-python`) libraries  
+2.1. Install **YOLOv8** (`ultralytics>=8.0`), **DeepSORT** (pip package: `deep-sort-realtime>=1.3`; import: `deep_sort_realtime`), **EasyOCR** (`easyocr>=1.6`), and **OpenCV** (`opencv-python>=4.5`) libraries  
 2.2. Create **video upload endpoint** (`POST /matches/{id}/video`) with file validation  
 2.3. Implement `process_video_file` Celery task:
-   - Extract frames at configurable FPS (default: 10)
-   - Run YOLOv8 inference for robot bounding boxes (classes: `robot_red`, `robot_blue`)
+   - Extract frames at configurable sample rate (`FRAME_SAMPLE_RATE`, default: 10 FPS)
+   - Run YOLOv8 inference for robot bounding boxes (classes: `robot_red`, `robot_blue`; confidence threshold configurable)
    - Apply DeepSORT for multi-object tracking across frames  
-2.4. Implement **cascaded team identification** pipeline (see `docs/COMPUTER_VISION_STRATEGY.md`):
-   - **OCR** (primary): EasyOCR reads team number from bumper region with preprocessing
-   - **Color matching** (secondary): per-team HSV histogram profiles calibrated at match start
-   - **Alliance + spatial constraint** (tertiary): eliminate impossible robots using known alliance composition and position
+2.4. Implement **cascaded team identification** pipeline (see `docs/COMPUTER_VISION_STRATEGY.md §10`):
+   - **OCR** (primary): EasyOCR reads team number from bumper region with preprocessing; validate against event roster
+   - **Color matching** (secondary): per-team HSV histogram profiles (Bhattacharyya distance) calibrated at match start
+   - **Alliance + spatial constraint** (tertiary): eliminate impossible robots using known alliance composition and position priors
    - **Kalman track continuity** (fallback): retain last confirmed team assignment during occlusion or rotation
+   - Apply **multi-method fusion** — OCR → DeepSORT tracking → color matching → Kalman prediction, in priority order  
 2.5. Implement **robot re-identification after configuration changes**:
-   - Detect bounding box size changes > 35% (mechanism deployment signal)
+   - Detect bounding box size changes ≥ 30% (mechanism deployment signal)
    - Trigger re-identification protocol: OCR first, then color, then track continuity
-   - Flag `configuration_changed = True` and `flagged_for_review = True` on affected rows when confidence drops below threshold
+   - Flag `configuration_changed = True` and `flagged_for_review = True` on affected rows when confidence drops below threshold  
 2.6. Implement **team number recovery after rotation/occlusion**:
    - Maintain `track_to_team` mapping per DeepSORT track ID across frames
-   - Use multi-frame voting (5-frame window) to resolve OCR-vs-track identity conflicts
+   - Use multi-frame voting (same number in ≥ 3 of last 10 frames before committing) to resolve OCR-vs-track identity conflicts
    - Flag rows with unresolved conflicts for manual review  
 2.7. Implement **perspective matrix transformation** to convert pixel coordinates to field coordinates (feet/meters); store calibration per event in `EventCameraCalibration` model  
-2.8. Persist per-frame tracking data into extended `MovementTrack` model with identification metadata:
-   - `identification_method`, `confidence_score`, `team_number_visible`
-   - `interpolated`, `configuration_changed`, `bounding_box_size_change`
-   - `flagged_for_review`, `review_reason`  
+2.8. Persist per-frame tracking data into extended `MovementTrack` model with full identification metadata:
+   - `identification_method` (OCR / DEEPSORT / COLOR / KALMAN / UNKNOWN)
+   - `confidence_score` (0.0–1.0), `team_number_visible`
+   - `interpolated` flag when position is Kalman-predicted (no detection in frame)
+   - `configuration_changed`, `bounding_box_size_change`
+   - `flagged_for_review` and `review_reason` for uncertain identifications (confidence < 0.60)  
 2.9. Implement **progress tracking** (task state updates at each phase: upload → extract → detect → identify → track → save)  
 2.10. Expose `GET /tasks/{task_id}/status` for frontend polling  
 2.11. Handle corrupt/unsupported video files gracefully with user-friendly errors  
 2.12. Add **GPU detection** with CPU fallback for inference (YOLOv8m on GPU; YOLOv8n on CPU)  
-2.13. Write integration tests using a short synthetic test video with known team assignments  
+2.13. Implement **Quality Assurance & Manual Review** infrastructure:
+   - `GET /admin/cv/flagged` endpoint listing all `MovementTrack` rows where `flagged_for_review = True`
+   - `PATCH /admin/cv/tracks/{id}` endpoint to manually assign `team_id` and clear review flag
+   - Accuracy tracking: compute per-match identification rate (% with `confidence_score ≥ 0.80`)
+   - Performance metrics endpoint reporting per-method usage counts and average confidence  
+2.14. Write integration tests using a short synthetic test video with known team assignments  
 
 #### Acceptance Criteria
 
@@ -111,10 +121,18 @@ This document outlines the comprehensive development plan for **Phase 2 of Scout
 - ✅ Corrupt video files return a descriptive error without crashing the worker
 - ✅ Flagged-for-review rate < 15% on clean match footage
 - ✅ All integration tests pass on CPU (no GPU required for CI)
+- ✅ Team identification accuracy ≥ 95% on benchmark videos with visible team numbers
+- ✅ OCR correctly reads team numbers from robot crops with confidence ≥ 0.80
+- ✅ Color matching correctly identifies robots with registered `RobotColorProfile` records
+- ✅ Kalman prediction maintains track positions during detection gaps (≤ 15 frames) within 0.5 m of true position for gaps ≤ 5 frames
+- ✅ Every `MovementTrack` row stores `identification_method` and `confidence_score`
+- ✅ Tracks with `confidence_score < 0.60` are flagged with `flagged_for_review = True`
+- ✅ Flagged tracks are visible at `GET /admin/cv/flagged` and correctable via `PATCH`
+- ✅ `configuration_changed = True` set when bounding box area changes by ≥ 30%
 
 #### Deliverables
 
-- `backend/app/services/video_processor.py` — Main pipeline orchestrator
+- `backend/app/services/video_processor.py` — Main pipeline orchestrator (YOLOv8 + DeepSORT + configuration change detection)
 - `backend/app/services/cv/detector.py` — YOLOv8 detection wrapper
 - `backend/app/services/cv/tracker.py` — DeepSORT wrapper with re-identification logic
 - `backend/app/services/cv/team_identifier.py` — Cascaded identification (OCR → color → spatial)
@@ -122,30 +140,38 @@ This document outlines the comprehensive development plan for **Phase 2 of Scout
 - `backend/app/services/cv/color_matcher.py` — HSV histogram color matching
 - `backend/app/services/cv/kalman_predictor.py` — Track continuity and gap-filling
 - `backend/app/services/cv/perspective.py` — Perspective transform calibration + application
+- `backend/app/services/identification_service.py` — Multi-method fusion logic
 - `backend/app/tasks/video_tasks.py` — Celery task definition with S3 download + progress reporting
 - `backend/app/models/movement_track.py` — Extended `MovementTrack` ORM model
 - `backend/app/models/event_camera_calibration.py` — `EventCameraCalibration` ORM model
+- `backend/app/models/robot_color_profile.py` — `RobotColorProfile` ORM model
+- `backend/app/routers/admin_cv.py` — manual review endpoints
 - `backend/alembic/versions/0002_add_movement_track.py` — migration
 - `backend/alembic/versions/0003_add_event_camera_calibration.py` — migration
 - `backend/tests/cv/test_ocr_reader.py` — OCR unit tests
 - `backend/tests/cv/test_color_matcher.py` — Color matching unit tests
 - `backend/tests/test_video_pipeline.py` — End-to-end integration test with synthetic video
+- `backend/tests/test_identification_service.py`
+- `backend/tests/test_manual_review.py`
 
 #### Dependencies
 
 - Tier 1 (Celery & Redis)
-- Phase 1 `Match` model (FK target for `MovementTrack`)
+- Phase 1 `Match` and `Team` models (FK targets for `MovementTrack` and `RobotColorProfile`)
+- Phase 1 TBA sync (event roster for OCR validation)
 - `docs/COMPUTER_VISION_STRATEGY.md` — Full implementation specification
 
 #### Key Decisions to Document
 
-- YOLOv8 chosen for best accuracy/speed trade-off on FRC robot detection
-- DeepSORT chosen for reliable multi-robot tracking; re-identification layered on top via OCR + color
-- Perspective transform matrix calibrated once per event per camera position; stored in database
-- EasyOCR preferred over Tesseract for digit recognition accuracy and GPU support
-- Cascaded identification (OCR → color → spatial → Kalman) ensures graceful degradation when primary methods fail
-- Configuration changes detected via bounding box size delta; triggers re-identification to prevent track fragmentation
-- Multi-frame voting (5-frame window) resolves OCR vs. track-history conflicts without discarding either signal
+- YOLOv8 chosen for best accuracy/speed trade-off on FRC robot detection (see `COMPUTER_VISION_STRATEGY.md §3`)
+- DeepSORT chosen for reliable multi-robot tracking; handles ≤ 6-robot FRC scenario without a custom re-ID model (see §4)
+- Multi-method identification (OCR → DeepSORT → Color → Kalman) chosen because no single method is reliable in all conditions (see §10)
+- EasyOCR chosen as primary OCR engine for digit recognition accuracy and GPU support (see §5)
+- HSV + Bhattacharyya distance chosen for color matching due to lighting invariance (see §6)
+- CPU-first design: all components must work without a GPU; GPU is an optional speedup (see §18)
+- Perspective transform matrix calibrated once per event per camera position; stored in database (see §10)
+- Configuration changes detected via bounding box size delta; triggers re-identification to prevent track fragmentation (see §7)
+- Multi-frame voting resolves OCR vs. track-history conflicts without discarding either signal (see §8)
 
 ---
 
