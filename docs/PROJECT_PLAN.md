@@ -1,4 +1,4 @@
-# ScoutFRC — Project Implementation Plan
+# ScouterFRC — Project Implementation Plan
 
 > **Version:** 1.0  
 > **Status:** Planning  
@@ -20,7 +20,7 @@
 
 ## 1. Project Overview
 
-**ScoutFRC** automates robot performance tracking by analyzing official FRC match videos using computer vision. It replaces manual student scouting with objective, repeatable data and assists alliance captains in making data-driven picks during the elimination rounds.
+**ScouterFRC** automates robot performance tracking by analyzing official FRC match videos using computer vision. It replaces manual student scouting with objective, repeatable data and assists alliance captains in making data-driven picks during the elimination rounds.
 
 | Attribute | Detail |
 |---|---|
@@ -486,7 +486,7 @@ ROBOT_PERFORMANCE (1) ──── (M) MOVEMENT_TRACK
 ---
 
 ## Phase 3: Advanced Features & Ecosystem Expansion (12 Tiers)
-**Goal**: Expand ScoutFRC into a comprehensive FRC intelligence ecosystem with advanced features, integrations, and community capabilities.
+**Goal**: Expand ScouterFRC into a comprehensive FRC intelligence ecosystem with advanced features, integrations, and community capabilities.
 
 **⚠️ IMPORTANT**: Phase 3 should NOT be started until Phase 1 and Phase 2 are fully complete and working correctly.
 
@@ -570,4 +570,4 @@ Each phase contains 12 detailed tiers with specific tasks, acceptance criteria, 
 
 ---
 
-*End of ScoutFRC Project Implementation Plan v1.0*
+*End of ScouterFRC Project Implementation Plan v1.0*

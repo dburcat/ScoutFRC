@@ -1,4 +1,4 @@
-# Background Daemon Implementation Plan for ScoutFRC
+# Background Daemon Implementation Plan for ScouterFRC
 
 ## System Architecture Diagram
 ![System Architecture Diagram](path_to_diagram)
