@@ -28,19 +28,29 @@ def test_connection() -> None:
     load_dotenv()
 
     database_url = os.getenv("DATABASE_URL")
-    db_host = os.getenv("DB_HOST", "localhost")
-    db_port = os.getenv("DB_PORT", "5432")
-    db_name = os.getenv("DB_NAME", "scouterfrc")
-    db_user = os.getenv("DB_USER", "postgres")
-    db_password = os.getenv("DB_PASSWORD", "password")
+    db_host = os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST", "localhost")
+    db_port = os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT", "5432")
+    db_name = os.getenv("DB_NAME") or os.getenv("POSTGRES_DB", "scouterfrc")
+    db_user = os.getenv("DB_USER") or os.getenv("POSTGRES_USER", "postgres")
+    db_password = os.getenv("DB_PASSWORD") or os.getenv("POSTGRES_PASSWORD", "password")
+
+    db_password_is_placeholder = db_password in {"", "your_password_here", "password_here"}
+    database_url_looks_placeholder = bool(database_url) and (
+        "username:password@" in database_url
+        or "your_password_here" in database_url
+    )
+
+    use_database_url = bool(database_url) and not database_url_looks_placeholder and db_password_is_placeholder
 
     print("ScouterFRC — PostgreSQL Connection Test")
     print("=" * 40)
 
-    if database_url:
-        print(f"  Using DATABASE_URL from environment")
+    if use_database_url:
+        print("  Using DATABASE_URL from environment")
         conn_kwargs = {"dsn": database_url}
     else:
+        if database_url_looks_placeholder:
+            print("  Ignoring placeholder DATABASE_URL and using DB_* variables")
         print(f"  Host:     {db_host}")
         print(f"  Port:     {db_port}")
         print(f"  Database: {db_name}")
