@@ -224,3 +224,8 @@ __marimo__/
 
 # Alembic
 alembic/versions/__pycache__/
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+scouterfrc-backup.sql
