@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from models import User
+from app.models import User
 
 def get_users(db: Session):
         users = db.query(User).all()

@@ -1,6 +1,6 @@
-from schema.sync_log_schema import SyncLog_schema
-from crud import crud_sync_log
-from db.session import get_db
+from app.schema.sync_log_schema import SyncLog_schema
+from app.crud import crud_sync_log
+from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 

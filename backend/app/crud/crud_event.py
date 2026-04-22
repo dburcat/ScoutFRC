@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from models import Event
+from app.models import Event
 
 def get_events(db: Session):
         events = db.query(Event).all()

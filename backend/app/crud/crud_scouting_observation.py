@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
-from models import ScoutingObservation
-from schema.scouting_observation_schema import ScoutingObservation_schema
+from app.models import ScoutingObservation
+from app.schema.scouting_observation_schema import ScoutingObservation_schema
 
 def get_scouting_observations(db: Session):
         scouting_observations = db.query(ScoutingObservation).all()

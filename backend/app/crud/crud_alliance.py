@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
-from models import Alliance
-from schema.alliance_schema import Alliance_schema
+from app.models import Alliance
+from app.schema.alliance_schema import Alliance_schema
 
 def get_alliances(db: Session):
         alliances = db.query(Alliance).all()

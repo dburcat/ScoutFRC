@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from models import SyncLog
+from app.models import SyncLog
 
 def get_sync_logs(db: Session):
         sync_logs = db.query(SyncLog).all()

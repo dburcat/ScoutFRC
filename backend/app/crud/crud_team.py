@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from models import Team, RobotPerformance, Match
+from app.models import Team, RobotPerformance, Match
 
 def get_teams(db: Session):
         teams = db.query(Team).all()

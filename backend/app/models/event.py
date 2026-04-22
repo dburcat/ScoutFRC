@@ -4,7 +4,7 @@ from sqlalchemy import Date, DateTime, SmallInteger, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import Base
+from .base import Base
 
 
 class Event(Base):

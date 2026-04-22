@@ -1,7 +1,7 @@
 from sqlalchemy import Boolean, CheckConstraint, ForeignKey, SmallInteger, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import Base
+from .base import Base
 
 
 class Alliance(Base):

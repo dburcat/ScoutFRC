@@ -1,7 +1,7 @@
-from schema.team_schema import Team_schema
-from schema.match_schema import Match_schema
-from crud import crud_team
-from db.session import get_db
+from app.schema.team_schema import Team_schema
+from app.schema.match_schema import Match_schema
+from app.crud import crud_team
+from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 

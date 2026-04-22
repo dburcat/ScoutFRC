@@ -1,6 +1,6 @@
-from schema.alliance_schema import Alliance_schema
-from crud import crud_alliance
-from db.session import get_db
+from app.schema.alliance_schema import Alliance_schema
+from app.crud import crud_alliance
+from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 

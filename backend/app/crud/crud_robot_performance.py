@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
-from models import RobotPerformance
-from schema.robot_performance_schema import RobotPerformance_schema
+from app.models import RobotPerformance
+from app.schema.robot_performance_schema import RobotPerformance_schema
 
 def get_robot_performances(db: Session):
         robot_performances = db.query(RobotPerformance).all()

@@ -1,12 +1,12 @@
-from models.alliance import Alliance
-from models.base import Base
-from models.event import Event
-from models.match import Match
-from models.robot_performance import RobotPerformance
-from models.scouting_observation import ScoutingObservation
-from models.sync_log import SyncLog
-from models.team import Team
-from models.user import User
+from .alliance import Alliance
+from .base import Base
+from .event import Event
+from .match import Match
+from .robot_performance import RobotPerformance
+from .scouting_observation import ScoutingObservation
+from .sync_log import SyncLog
+from .team import Team
+from .user import User
 
 __all__ = [
 	"Alliance",

@@ -1,6 +1,6 @@
-from schema.robot_performance_schema import RobotPerformance_schema
-from crud import crud_robot_performance
-from db.session import get_db
+from app.schema.robot_performance_schema import RobotPerformance_schema
+from app.crud import crud_robot_performance
+from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
