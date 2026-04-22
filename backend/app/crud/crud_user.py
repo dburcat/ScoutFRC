@@ -14,12 +14,7 @@ def get_user(user_id: int, db: Session):
         return user_obj
 
 def create_user(db: Session, user_in: UserCreate):
-    db_obj = User(
-        username=user_in.username,
-        email=user_in.email,
-        hashed_password=get_password_hash(user_in.password), # BCrypt magic
-        role=user_in.role
-    )
+    db_obj = User(**user_in.model_dump(exclude={"password"}), hashed_password=get_password_hash(user_in.password))
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)

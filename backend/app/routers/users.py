@@ -3,7 +3,6 @@ from app.crud import crud_user
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from app.models import User
 from app.schemas.user_schema import UserCreate
 
 user_router = APIRouter(prefix="/users", tags=["users"])
@@ -20,7 +19,7 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     return user_obj
 
-@user_router.post("/", response_model=User, status_code=status.HTTP_201_CREATED)
+@user_router.post("/", response_model=User_schema, status_code=status.HTTP_201_CREATED)
 def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
     """
     Create a new user (Registration).
