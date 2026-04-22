@@ -1,4 +1,4 @@
-from app.schema.user_schema import User_schema
+from app.schemas.user_schema import User_schema
 from app.crud import crud_user
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException

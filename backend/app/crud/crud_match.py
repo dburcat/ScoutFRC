@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from app.models import Match
-from app.schema.match_schema import Match_schema
+from app.schemas.match_schema import Match_schema
 
 def get_matches(db: Session):
         matches = db.query(Match).all()

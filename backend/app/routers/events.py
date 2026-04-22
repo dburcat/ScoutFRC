@@ -1,6 +1,6 @@
-from app.schema.event_schema import Event_schema
-from app.schema.match_schema import Match_schema
-from app.schema.team_schema import Team_schema
+from app.schemas.event_schema import Event_schema
+from app.schemas.match_schema import Match_schema
+from app.schemas.team_schema import Team_schema
 from app.crud import crud_event, crud_match, crud_team
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException
