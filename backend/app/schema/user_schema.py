@@ -12,7 +12,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str # Used for registration only
 
-class User(UserBase):
+class User_schema(UserBase):
     user_id: int
     created_at: datetime
     last_login: Optional[datetime] = None

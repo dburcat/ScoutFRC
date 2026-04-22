@@ -13,7 +13,7 @@ class ScoutingObservationBase(BaseModel):
 class ScoutingObservationCreate(ScoutingObservationBase):
     pass
 
-class ScoutingObservation(ScoutingObservationBase):
+class ScoutingObservation_schema(ScoutingObservationBase):
     observation_id: int
     submitted_at: datetime
     

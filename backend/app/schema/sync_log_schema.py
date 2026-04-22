@@ -12,7 +12,7 @@ class SyncLogBase(BaseModel):
     old_values: Optional[dict] = None
     new_values: Optional[dict] = None
 
-class SyncLog(SyncLogBase):
+class SyncLog_schema(SyncLogBase):
     sync_id: int
     sync_timestamp: datetime
     

@@ -14,14 +14,14 @@ class MatchBase(BaseModel):
 class MatchCreate(MatchBase):
     pass
 
-class Match(MatchBase):
+class Match_schema(MatchBase):
     match_id: int
     created_at: datetime
     # Use forward references for nesting if Alliance depends on Match
-    alliances: List["Alliance"] = [] 
+    alliances: List["Alliance_schema"] = [] 
     
     model_config = ConfigDict(from_attributes=True)
 
 # This handles circular imports if Match and Alliance reference each other
-from .alliance_schema import Alliance
-Match.model_rebuild()
+from .alliance_schema import Alliance_schema
+Match_schema.model_rebuild()

@@ -16,7 +16,7 @@ class RobotPerformanceBase(BaseModel):
 class RobotPerformanceCreate(RobotPerformanceBase):
     pass
 
-class RobotPerformance(RobotPerformanceBase):
+class RobotPerformance_schema(RobotPerformanceBase):
     perf_id: int
     total_score_contribution: int
     

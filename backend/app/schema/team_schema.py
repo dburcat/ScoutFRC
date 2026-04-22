@@ -14,7 +14,7 @@ class TeamBase(BaseModel):
 class TeamCreate(TeamBase):
     pass
 
-class Team(TeamBase):
+class Team_schema(TeamBase):
     team_id: int
     created_at: datetime
     

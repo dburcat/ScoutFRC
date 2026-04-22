@@ -14,7 +14,7 @@ class EventBase(BaseModel):
 class EventCreate(EventBase):
     pass
 
-class Event(EventBase):
+class Event_schema(EventBase):
     event_id: int
     created_at: datetime
     
