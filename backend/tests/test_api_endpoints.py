@@ -13,3 +13,4 @@ def test_get_invalid_team():
     assert response.status_code == 404
     # This verifies your custom error handler works!
     assert response.json()["error"] == "Resource Error"
+    
