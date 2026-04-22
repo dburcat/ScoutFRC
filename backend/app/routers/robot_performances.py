@@ -17,3 +17,8 @@ def get_robot_performance(robot_performance_id: int, db: Session = Depends(get_d
         if robot_performance_obj is None:
                 raise HTTPException(status_code=404, detail="Robot Performance not found")
         return robot_performance_obj
+
+@robot_performance_router.get("/match/{match_id}", response_model=list[RobotPerformance_schema])
+def get_robot_performances_by_match(match_id: int, db: Session = Depends(get_db)):
+        robot_performances = crud_robot_performance.get_robot_performances_by_match(match_id, db)
+        return robot_performances
