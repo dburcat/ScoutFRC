@@ -9,6 +9,9 @@ from app.core import security
 from app.crud import crud_user
 from app.schemas.token import Token
 
+from app.schemas.user_schema import User_schema
+from app.routers.deps import get_current_user
+
 auth_router = APIRouter()
 
 @auth_router.post("/login", response_model=Token)
@@ -41,3 +44,10 @@ def login_access_token(
         ),
         "token_type": "bearer",
     }
+
+@auth_router.get("/me", response_model=User_schema)
+def read_users_me(current_user: User_schema = Depends(get_current_user)):
+    """
+    Get current logged-in user information.
+    """
+    return current_user
