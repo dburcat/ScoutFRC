@@ -17,3 +17,8 @@ def get_alliance(alliance_id: int, db: Session = Depends(get_db)):
         if alliance_obj is None:
                 raise HTTPException(status_code=404, detail="Alliance not found")
         return alliance_obj
+
+@alliance_router.post("/", response_model=Alliance_schema, status_code=201)
+def create_alliance(alliance: Alliance_schema, db: Session = Depends(get_db)):
+        alliance_obj = crud_alliance.create_alliance(alliance, db)
+        return alliance_obj

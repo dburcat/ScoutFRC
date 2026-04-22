@@ -17,3 +17,8 @@ def get_scouting_observation(scouting_observation_id: int, db: Session = Depends
         if scouting_observation_obj is None:
                 raise HTTPException(status_code=404, detail="Scouting Observation not found")
         return scouting_observation_obj
+
+@scouting_observation_router.post("/", response_model=ScoutingObservation_schema, status_code=201)
+def create_scouting_observation(scouting_observation: ScoutingObservation_schema, db: Session = Depends(get_db)):
+        scouting_observation_obj = crud_scouting_observation.create_scouting_observation(scouting_observation, db)
+        return scouting_observation_obj
