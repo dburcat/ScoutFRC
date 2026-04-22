@@ -1,4 +1,4 @@
-from app.routers import alliances, events, matches, robot_performances, scouting_observations, sync_logs, teams, users
+from app.routers import alliances, events, matches, robot_performances, scouting_observations, sync_logs, teams, users, auth
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -81,3 +81,4 @@ app.include_router(scouting_observations.scouting_observation_router)
 app.include_router(sync_logs.sync_log_router)
 app.include_router(teams.team_router)
 app.include_router(users.user_router)
+app.include_router(auth.auth_router)

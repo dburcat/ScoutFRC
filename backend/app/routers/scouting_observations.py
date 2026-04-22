@@ -1,4 +1,4 @@
-from app.schema.scouting_observation_schema import ScoutingObservation_schema
+from app.schemas.scouting_observation_schema import ScoutingObservation_schema
 from app.crud import crud_scouting_observation
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException

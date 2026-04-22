@@ -1,4 +1,4 @@
-from app.schema.match_schema import Match_schema
+from app.schemas.match_schema import Match_schema
 from app.crud import crud_match
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException

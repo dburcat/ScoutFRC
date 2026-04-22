@@ -1,4 +1,4 @@
-from app.schema.alliance_schema import Alliance_schema
+from app.schemas.alliance_schema import Alliance_schema
 from app.crud import crud_alliance
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException
