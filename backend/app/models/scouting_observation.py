@@ -4,7 +4,7 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, SmallIntege
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base
+from .base import Base
 
 
 class ScoutingObservation(Base):
