@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import api from '@/api/axios'; // Ensure your @ alias is set up
+import api from '@/api/client'; // Ensure your @ alias is set up
 import { User, AuthResponse } from '@/types/auth';
 
 interface AuthContextType {

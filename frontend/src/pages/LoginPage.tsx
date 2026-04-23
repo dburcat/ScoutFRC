@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import { useAuth } from '@/context/AuthContext';
-import api from '@/api/axios';
+import api from '@/api/client';
 import { AuthResponse } from '@/types/auth';
 
 const LoginPage: React.FC = () => {

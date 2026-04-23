@@ -1,13 +1,22 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query'; // 1. Import hook
-import api from '@/api/axios';
+import { useQuery } from '@tanstack/react-query';
+import { useAppStore } from '@/store/useStore'; // Import the Zustand store
+import api from '@/api/client';
 
 const DashboardPage = () => {
-  // 2. Replace useEffect/useState with useQuery
+  // 1. Hook into the Global Store
+  const { selectedEventId, setSelectedEvent } = useAppStore();
+
+  // 2. Use the Global State to drive the data fetch
   const { data: scoutingData, isLoading, isError } = useQuery({
-    queryKey: ['matches'],
+    // Adding selectedEventId to the key makes the fetch reactive
+    queryKey: ['matches', selectedEventId], 
     queryFn: async () => {
-      const res = await api.get('/matches/');
+      // If an event is selected, we filter by ID; otherwise, we get all matches
+      const endpoint = selectedEventId 
+        ? `/matches/?event_id=${selectedEventId}` 
+        : '/matches/';
+      const res = await api.get(endpoint);
       return res.data;
     },
   });
@@ -31,9 +40,31 @@ const DashboardPage = () => {
 
   return (
     <section className="animate-fadeIn">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-1 text-gray-800 tracking-tight">Match Schedule</h2>
-        <p className="text-gray-500">Real-time performance data sorted by alliance.</p>
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-2xl font-bold mb-1 text-gray-800 tracking-tight">Match Schedule</h2>
+          <p className="text-gray-500">
+            Viewing: <span className="font-semibold text-blue-600">{selectedEventId || 'All Events'}</span>
+          </p>
+        </div>
+
+        {/* 3. Action Button to test the Zustand Store */}
+        <div className="flex gap-2">
+          {selectedEventId && (
+            <button 
+              onClick={() => setSelectedEvent(null)}
+              className="px-3 py-1 text-xs text-gray-500 hover:text-gray-800 bg-gray-100 rounded transition"
+            >
+              Reset Filter
+            </button>
+          )}
+          <button 
+            onClick={() => setSelectedEvent('2026-championship')}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition shadow-sm"
+          >
+            Switch to Championship
+          </button>
+        </div>
       </div>
       
       <div className="overflow-x-auto rounded-xl shadow-sm border border-gray-200 bg-white">
@@ -50,7 +81,7 @@ const DashboardPage = () => {
             {scoutingData && scoutingData.length > 0 ? (
               scoutingData.map((match: any) => (
                 <React.Fragment key={match.match_id}>
-                  {/* Match Header Row */}
+                  {/* Match Group Header */}
                   <tr className="bg-gray-50/50 font-bold border-t border-gray-200">
                     <td className="p-4 text-gray-900 font-bold">Match {match.match_number}</td>
                     <td className="p-4 text-xs text-gray-500 uppercase">{match.match_type}</td>
@@ -68,7 +99,7 @@ const DashboardPage = () => {
                     </td>
                   </tr>
 
-                  {/* Alliance and Robot Nesting */}
+                  {/* Alliances Detail */}
                   {match.alliances?.map((alliance: any) => (
                     <React.Fragment key={alliance.alliance_id}>
                       <tr className={alliance.color === 'red' ? 'bg-red-50/30' : 'bg-blue-50/30'}>
