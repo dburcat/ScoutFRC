@@ -41,3 +41,13 @@ def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
         )
         
     return crud_user.create_user(db, user_in=user_in)
+
+@user_router.post("/login", response_model=User_schema)
+def login(user_in: UserCreate, db: Session = Depends(get_db)):
+    """
+    Authenticate a user and return their details.
+    """
+    user = crud_user.authenticate(db, username=user_in.username, password=user_in.password)
+    if not user:
+        raise HTTPException(status_code=400, detail="Incorrect username or password")
+    return user

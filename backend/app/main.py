@@ -13,6 +13,7 @@ app = FastAPI()
 origins = [
     "http://localhost:8000",    # Standard React port
     "http://127.0.0.1:8000",
+    "http://localhost:5173"
 ]
 
 # 2. Add the middleware to the application
