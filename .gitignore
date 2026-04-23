@@ -229,3 +229,7 @@ alembic/versions/__pycache__/
 docker-compose.override.yml
 .dockerignore
 scouterfrc-backup.sql
+
+# tailwind
+node_modules/
+dist/
