@@ -14,19 +14,14 @@ MATCH_TYPE_MAP = {
 # ── Event ────────────────────────────────────────────────────────────────────
 
 def upsert_event(db: Session, tba_event: dict) -> Event:
-    location_parts = filter(None, [
-        tba_event.get("city"),
-        tba_event.get("state_prov"),
-        tba_event.get("country"),
-    ])
-    location = ", ".join(location_parts) or None
-
     stmt = (
         pg_insert(Event)
         .values(
             tba_event_key=tba_event["key"],
             name=tba_event["name"],
-            location=location,
+            city=tba_event.get("city"),
+            state_prov=tba_event.get("state_prov"),
+            country=tba_event.get("country"),
             start_date=date.fromisoformat(tba_event["start_date"]),
             end_date=date.fromisoformat(tba_event["end_date"]),
             season_year=tba_event["year"],
@@ -34,10 +29,12 @@ def upsert_event(db: Session, tba_event: dict) -> Event:
         .on_conflict_do_update(
             index_elements=["tba_event_key"],
             set_={
-                "name": tba_event["name"],
-                "location": location,
+                "name":       tba_event["name"],
+                "city":       tba_event.get("city"),
+                "state_prov": tba_event.get("state_prov"),
+                "country":    tba_event.get("country"),
                 "start_date": date.fromisoformat(tba_event["start_date"]),
-                "end_date": date.fromisoformat(tba_event["end_date"]),
+                "end_date":   date.fromisoformat(tba_event["end_date"]),
             },
         )
         .returning(Event.event_id)

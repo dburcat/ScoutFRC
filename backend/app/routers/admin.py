@@ -9,7 +9,7 @@ from app.integrations import tba_client, tba_mapper
 admin_router = APIRouter(prefix="/admin", tags=["admin"])
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role != "admin":
+    if current_user.role != "SYSTEM_ADMIN":
         raise HTTPException(status_code=403, detail="Admin role required")
     return current_user
 
@@ -31,6 +31,8 @@ def sync_event(
         raise HTTPException(status_code=502, detail=str(e))
 
     # 2. Upsert Event
+    if not isinstance(tba_event, dict):
+        raise HTTPException(status_code=502, detail="Invalid event data from TBA")
     event = tba_mapper.upsert_event(db, tba_event)
 
     # 3. Upsert Teams, build lookup map
