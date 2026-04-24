@@ -5,12 +5,13 @@ from app.crud import crud_event, crud_match, crud_team
 from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from typing import Optional
 
 event_router = APIRouter(prefix="/events", tags=["events"])
 
 @event_router.get("/", response_model=list[Event_schema])
-def get_events(db: Session = Depends(get_db)):
-        events = crud_event.get_events(db)
+def get_events(year: Optional[int] = None, db: Session = Depends(get_db)):
+        events = crud_event.get_events(db, year=year)
         return events
 
 @event_router.get("/{event_id}", response_model=Event_schema)
@@ -29,4 +30,3 @@ def get_event_matches(event_id: int, db: Session = Depends(get_db)):
 def get_event_teams(event_id: int, db: Session = Depends(get_db)):
         teams = crud_team.get_teams_by_event(event_id, db)
         return teams
-
