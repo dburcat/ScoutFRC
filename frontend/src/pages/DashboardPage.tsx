@@ -63,16 +63,16 @@ const DashboardPage = () => {
           </button>
         </div>
       </div>
-      
+
       <div className="overflow-hidden rounded-2xl shadow-sm border border-gray-200 bg-white">
-        <table className="w-full border-collapse text-left">
+        <table className="w-full border-collapse text-left border">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200 text-gray-400 uppercase text-[10px] font-black tracking-widest">
-              <th className="p-4 w-32 flex items-center gap-2"><Layout size={12}/> Match</th>
+              <th className="p-4 w-32 flex items-center gap-2"><Layout size={12}/> Alliance</th>
               <th className="p-4"><Hash size={12} className="inline mr-1"/> Team 1</th>
               <th className="p-4"><Hash size={12} className="inline mr-1"/> Team 2</th>
               <th className="p-4"><Hash size={12} className="inline mr-1"/> Team 3</th>
-              <th className="p-4 text-right">Alliance Score</th>
+              <th className="p-4 text-right">Score</th>
               <th className="p-4 text-right">Status</th>
             </tr>
           </thead>
