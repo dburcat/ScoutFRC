@@ -30,8 +30,8 @@ class Event_schema(EventBase):
         try:
             team_ids = set()
             for match in self.matches:  # type: ignore[attr-defined]
-                for perf in match.robot_performances:
-                    team_ids.add(perf.team_id)
+                for alliance in match.alliances:
+                    team_ids.add(alliance.team_id)
             return len(team_ids)
         except AttributeError:
             return 0

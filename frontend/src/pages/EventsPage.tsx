@@ -8,7 +8,7 @@ import { Calendar, MapPin, Users, Activity, Search, Trophy } from 'lucide-react'
 const EventsPage = () => {
   const navigate = useNavigate();
   const { setSelectedEvent } = useAppStore();
-  const [yearFilter, setYearFilter] = useState('2026');
+  const [yearFilter, setYearFilter] = useState('2025');
   const [searchQuery, setSearchQuery] = useState('');
 
   const { data: events, isLoading } = useQuery({
