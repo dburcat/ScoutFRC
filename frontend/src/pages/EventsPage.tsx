@@ -8,7 +8,7 @@ import { Calendar, MapPin, Users, Activity, Search, Trophy } from 'lucide-react'
 const EventsPage = () => {
   const navigate = useNavigate();
   const { setSelectedEvent } = useAppStore();
-  const [yearFilter, setYearFilter] = useState('2025');
+  const [yearFilter, setYearFilter] = useState('2026');
   const [searchQuery, setSearchQuery] = useState('');
 
   const { data: events, isLoading } = useQuery({
@@ -24,7 +24,7 @@ const EventsPage = () => {
     if (!events) return [];
     return events.filter((event: any) =>
       event.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      event.location.toLowerCase().includes(searchQuery.toLowerCase())
+      (event.location ?? '').toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [events, searchQuery]);
 
@@ -87,7 +87,7 @@ const EventsPage = () => {
               
               <div className="space-y-3 text-sm text-gray-500 mb-8">
                 <div className="flex items-center gap-2">
-                  <MapPin size={16} className="text-blue-400" /> {event.location}
+                  <MapPin size={16} className="text-blue-400" /> {event.location ?? '—'}
                 </div>
                 <div className="flex items-center gap-2">
                   <Calendar size={16} className="text-blue-400" /> {event.date}

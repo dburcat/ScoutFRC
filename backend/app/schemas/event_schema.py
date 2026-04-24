@@ -6,7 +6,9 @@ from datetime import date, datetime
 class EventBase(BaseModel):
     tba_event_key: str
     name: str
-    location: Optional[str] = None
+    city: Optional[str] = None
+    state_prov: Optional[str] = None
+    country: Optional[str] = None
     start_date: date
     end_date: date
     season_year: int
@@ -25,13 +27,20 @@ class Event_schema(EventBase):
 
     @computed_field
     @property
+    def location(self) -> Optional[str]:
+        """Convenience field: human-readable location string."""
+        parts = [p for p in [self.city, self.state_prov, self.country] if p]
+        return ", ".join(parts) if parts else None
+
+    @computed_field
+    @property
     def team_count(self) -> int:
         """Distinct teams that have a RobotPerformance in any match of this event."""
         try:
             team_ids = set()
             for match in self.matches:  # type: ignore[attr-defined]
-                for alliance in match.alliances:
-                    team_ids.add(alliance.team_id)
+                for perf in match.robot_performances:
+                    team_ids.add(perf.team_id)
             return len(team_ids)
         except AttributeError:
             return 0
