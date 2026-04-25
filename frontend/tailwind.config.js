@@ -4,23 +4,29 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        serif: ['"Instrument Serif"', 'Georgia', 'serif'],
-        sans:  ['"DM Sans"', 'system-ui', 'sans-serif'],
+        sans: ['"DM Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"DM Mono"', 'monospace'],
       },
       colors: {
-        sand: {
-          50:  '#faf9f6',
-          100: '#f2efe8',
-          200: '#e8e4db',
-          300: '#d8d4c8',
-          400: '#b8b4a8',
-          500: '#8a8880',
-          600: '#5c5a54',
-          900: '#1a1814',
+        app: {
+          bg:      '#0f1117',
+          sidebar: '#0a0c10',
+          card:    '#161922',
+          border:  '#1e2330',
+          muted:   '#2a2f3d',
         },
-        accent: {
-          DEFAULT: '#2a5c3f',
-          light:   '#eaf3de',
+        brand: {
+          DEFAULT: '#3b82f6',
+          50:  '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
+          500: '#3b82f6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+          800: '#1e40af',
+          900: '#1e3a8a',
         },
       },
     },

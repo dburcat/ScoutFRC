@@ -6,11 +6,29 @@
   *, *::before, *::after { box-sizing: border-box; }
 
   body {
-    @apply font-sans bg-sand-50 text-sand-900 antialiased;
+    @apply font-sans bg-app-bg text-white antialiased;
     margin: 0;
   }
 
   #root {
     @apply flex min-h-screen w-full;
+  }
+}
+
+@layer utilities {
+  .stat-card {
+    @apply bg-app-card border border-app-border rounded-xl p-5;
+  }
+  .pill-red {
+    @apply bg-red-900/40 text-red-400 border border-red-800/50 text-xs font-medium px-2.5 py-0.5 rounded-full;
+  }
+  .pill-blue {
+    @apply bg-blue-900/40 text-blue-400 border border-blue-800/50 text-xs font-medium px-2.5 py-0.5 rounded-full;
+  }
+  .pill-green {
+    @apply bg-green-900/40 text-green-400 border border-green-800/50 text-xs font-medium px-2.5 py-0.5 rounded-full;
+  }
+  .bg-brand-faint {
+    background-color: rgba(59, 130, 246, 0.15);
   }
 }

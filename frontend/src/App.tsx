@@ -1,70 +1,64 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import Sidebar from '@/components/Sidebar';
-import DashboardPage from '@/pages/DashboardPage';
+import Sidebar from '@/pages/Sidebar';
 import LoginPage from '@/pages/LoginPage';
+import DashboardPage from '@/pages/DashboardPage';
 import EventsPage from '@/pages/EventsPage';
 
-function App() {
-  const { user, isLoading } = useAuth();
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-sand-50 flex items-center justify-center">
-        <span className="font-serif italic text-[18px] text-sand-400">Loading…</span>
-      </div>
-    );
-  }
-
+function AppShell() {
   return (
-    <div className="flex min-h-screen bg-sand-50">
-      {user && <Sidebar />}
+    <div className="flex min-h-screen w-full bg-app-bg">
+      <Sidebar />
+      <main className="flex-1 min-w-0 flex flex-col">
+        <Routes>
+          <Route path="/"        element={<DashboardPage />} />
+          <Route path="/events"  element={<EventsPage />} />
+          {/* Placeholder routes — to be built in later tiers */}
+          <Route path="/teams"     element={<PlaceholderPage title="Teams" />} />
+          <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
+          <Route path="/alliance"  element={<PlaceholderPage title="Alliance Builder" />} />
+          <Route path="/observations/new" element={<PlaceholderPage title="Add Observation" />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
 
-      <div className={`flex flex-col flex-1 min-h-screen ${user ? 'ml-[200px]' : ''}`}>
-
-        {/* Header — only when logged in */}
-        {user && (
-          <header className="h-[52px] bg-sand-50 border-b border-sand-200 flex items-center justify-end px-12 sticky top-0 z-30">
-            <div className="flex items-center gap-2.5">
-              <span className="font-sans text-[12px] text-sand-400">{user.username}</span>
-              <div className="w-[26px] h-[26px] rounded-full bg-sand-200 border border-sand-300 flex items-center justify-center font-sans text-[11px] font-medium text-sand-600">
-                {user.username.charAt(0).toUpperCase()}
-              </div>
-            </div>
-          </header>
-        )}
-
-        {/* Routes */}
-        <main className="flex-1">
-          <Routes>
-            <Route path="/" element={<Navigate to="/events" replace />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/events" element={<EventsPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/teams" element={
-              <div className="px-12 pt-20 text-center">
-                <div className="font-serif italic text-[24px] text-sand-300">Team analytics coming soon</div>
-              </div>
-            } />
-            <Route path="*" element={
-              <div className="px-12 pt-20 text-center">
-                <div className="font-serif text-[72px] text-sand-200 leading-none">404</div>
-                <div className="font-sans text-[14px] text-sand-400 mt-3">This page doesn't exist.</div>
-              </div>
-            } />
-          </Routes>
-        </main>
-
-        {/* Footer */}
-        <footer className="px-12 py-6 border-t border-sand-200 flex items-center justify-between">
-          <span className="font-serif italic text-[13px] text-sand-400">Scouter FRC</span>
-          <span className="font-sans text-[11px] text-sand-300">
-            © {new Date().getFullYear()} Unified Scouting Platform
-          </span>
-        </footer>
+function PlaceholderPage({ title }: { title: string }) {
+  return (
+    <div className="flex-1 flex items-center justify-center">
+      <div className="text-center">
+        <p className="text-slate-600 text-sm font-mono">{title}</p>
+        <p className="text-slate-700 text-xs mt-1">Coming in a future tier</p>
       </div>
     </div>
   );
 }
 
-export default App;
+function ProtectedRoutes() {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-app-bg">
+        <div className="flex items-center gap-2 text-slate-600 text-sm">
+          <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+          Loading…
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) return <Navigate to="/login" replace />;
+  return <AppShell />;
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/*"     element={<ProtectedRoutes />} />
+    </Routes>
+  );
+}
