@@ -1,13 +1,15 @@
 # backend/app/routers/admin.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
 from app.db.session import get_db
 from app.routers.deps import get_current_user
 from app.models.user import User
-from app.integrations import tba_client, tba_mapper
+from app.integrations.sync_service import sync_event, sync_season_events
 from app.crud import crud_sync_log
 
 admin_router = APIRouter(prefix="/admin", tags=["admin"])
+
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role != "SYSTEM_ADMIN":
@@ -16,70 +18,61 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 
 
 @admin_router.post("/sync-event/{event_key}")
-def sync_event(
+def sync_event_endpoint(
     event_key: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    # 1. Fetch from TBA
+    """Manually trigger a full sync for a single event."""
     try:
-        tba_event   = tba_client.get_event(event_key)
-        tba_teams   = tba_client.get_event_teams(event_key)
-        tba_matches = tba_client.get_event_matches(event_key)
+        result = sync_event(db, event_key, triggered_by=current_user.user_id)
     except ValueError as e:
         crud_sync_log.create_sync_log(
             db, sync_type="event", resource_id=event_key,
-            status="failed", triggered_by=current_user.user_id,
-            error_message=str(e),
+            status="failed", triggered_by=current_user.user_id, error_message=str(e),
         )
         db.commit()
         raise HTTPException(status_code=404, detail=str(e))
     except RuntimeError as e:
         crud_sync_log.create_sync_log(
             db, sync_type="event", resource_id=event_key,
-            status="failed", triggered_by=current_user.user_id,
-            error_message=str(e),
+            status="failed", triggered_by=current_user.user_id, error_message=str(e),
         )
         db.commit()
         raise HTTPException(status_code=502, detail=str(e))
 
-    # 2. Upsert Event
-    if not isinstance(tba_event, dict):
-        raise HTTPException(status_code=502, detail="Invalid event data from TBA")
-    event = tba_mapper.upsert_event(db, tba_event)
+    return {"status": "ok", **result}
 
-    # 3. Upsert Teams, build lookup map
-    team_number_to_id: dict[int, int] = {}
-    for tba_team in tba_teams:
-        team = tba_mapper.upsert_team(db, tba_team)
-        team_number_to_id[tba_team["team_number"]] = team.team_id
 
-    # 4. Upsert Matches + Alliances + RobotPerformances
-    synced_matches = 0
-    for tba_match in tba_matches:
-        tba_mapper.upsert_match(db, tba_match, event, team_number_to_id)
-        synced_matches += 1
+@admin_router.post("/sync-season/{year}")
+def sync_season_endpoint(
+    year: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    Bootstrap all events for a given season year.
+    Pulls event metadata only — use sync-event/{key} for teams + matches.
+    """
+    if year < 1992 or year > 2100:
+        raise HTTPException(status_code=400, detail="Invalid season year")
+    try:
+        result = sync_season_events(db, year)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"status": "ok", **result}
 
-    # 5. Write sync log
-    crud_sync_log.create_sync_log(
-        db,
-        sync_type="event",
-        resource_id=event_key,
-        status="success",
-        triggered_by=current_user.user_id,
-        records_created=len(tba_teams) + synced_matches,
-        new_values={
-            "event_key": event_key,
-            "teams_synced": len(tba_teams),
-            "matches_synced": synced_matches,
-        },
-    )
 
-    db.commit()
-
-    return {
-        "status": "ok",
-        "event_key": event_key,
-        "teams_synced": len(tba_teams),
-        "matches_synced": synced_matches,
-    }
+@admin_router.get("/scheduler/status")
+def scheduler_status(current_user: User = Depends(require_admin)):
+    """Return current scheduler job intervals — useful for debugging."""
+    from app.core.scheduler import _scheduler
+    jobs = []
+    for job in _scheduler.get_jobs():
+        jobs.append({
+            "id": job.id,
+            "name": job.name,
+            "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+            "trigger": str(job.trigger),
+        })
+    return {"running": _scheduler.running, "jobs": jobs}

@@ -2,19 +2,45 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, MapPin, Users, ArrowRight } from 'lucide-react';
-import api from '@/api/client';
 import { useAuth } from '@/context/AuthContext';
 import { type Event, type Team } from '@/types/models';
+import {
+  eventsQuery,
+  eventTeamsQuery,
+  teamsQuery,
+  CURRENT_YEAR,
+} from '@/api/queries';
 import { clsx } from 'clsx';
 
-const CURRENT_YEAR = new Date().getFullYear();
+// ── Live pulse indicator ───────────────────────────────────────────────────────
+function LiveIndicator({ isFetching }: { isFetching: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className={clsx(
+        'w-1.5 h-1.5 rounded-full transition-colors',
+        isFetching ? 'bg-brand animate-pulse' : 'bg-green-500'
+      )} />
+      <span className="text-[11px] text-slate-600">
+        {isFetching ? 'Updating…' : 'Live'}
+      </span>
+    </div>
+  );
+}
 
 // ── Stat Card ──────────────────────────────────────────────────────────────────
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub: string }) {
+function StatCard({
+  label, value, sub, loading,
+}: {
+  label: string; value: string | number; sub: string; loading?: boolean;
+}) {
   return (
     <div className="bg-app-card border border-app-border rounded-xl p-4">
       <p className="text-[11px] text-slate-500 mb-1">{label}</p>
-      <p className="text-2xl font-medium text-white leading-none mb-1">{value}</p>
+      {loading ? (
+        <div className="h-7 w-16 bg-app-muted rounded animate-pulse mb-1" />
+      ) : (
+        <p className="text-2xl font-medium text-white leading-none mb-1">{value}</p>
+      )}
       <p className="text-[11px] text-slate-600">{sub}</p>
     </div>
   );
@@ -25,28 +51,27 @@ function eventStatus(event: Event): 'upcoming' | 'in-progress' | 'complete' {
   const now = new Date();
   const start = new Date(event.start_date);
   const end = new Date(event.end_date);
-  // end date is inclusive, so add one day
   end.setDate(end.getDate() + 1);
   if (now < start) return 'upcoming';
-  if (now > end)   return 'complete';
+  if (now > end) return 'complete';
   return 'in-progress';
 }
 
 function StatusBadge({ status }: { status: ReturnType<typeof eventStatus> }) {
   return (
     <span className={clsx('text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0', {
-      'bg-brand/10 text-brand':       status === 'upcoming',
-      'bg-amber-900/30 text-amber-400': status === 'in-progress',
-      'bg-green-900/30 text-green-400': status === 'complete',
+      'bg-brand/10 text-brand':           status === 'upcoming',
+      'bg-amber-900/30 text-amber-400':   status === 'in-progress',
+      'bg-green-900/30 text-green-400':   status === 'complete',
     })}>
-      {status === 'in-progress' ? 'In progress' : status.charAt(0).toUpperCase() + status.slice(1)}
+      {status === 'in-progress' ? 'In progress'
+        : status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
   );
 }
 
-// ── Sparkline ─────────────────────────────────────────────────────────────────
+// ── Sparkline ──────────────────────────────────────────────────────────────────
 function Sparkline({ color = '#3b82f6' }: { color?: string }) {
-  // Placeholder sparkline — will be wired to real match data in Tier 6
   const points = [16, 12, 14, 8, 11, 6, 9].map((y, x) => `${x * 8},${y}`).join(' ');
   return (
     <svg width="48" height="20" viewBox="0 0 48 20" className="flex-shrink-0">
@@ -56,8 +81,10 @@ function Sparkline({ color = '#3b82f6' }: { color?: string }) {
   );
 }
 
-// ── Team row ──────────────────────────────────────────────────────────────────
-function TeamRow({ team, selected, onClick }: { team: Team; selected: boolean; onClick: () => void }) {
+// ── Team row ───────────────────────────────────────────────────────────────────
+function TeamRow({
+  team, selected, onClick,
+}: { team: Team; selected: boolean; onClick: () => void }) {
   const loc = [team.city, team.state_prov].filter(Boolean).join(', ');
   return (
     <button
@@ -79,7 +106,7 @@ function TeamRow({ team, selected, onClick }: { team: Team; selected: boolean; o
   );
 }
 
-// ── Team detail panel ─────────────────────────────────────────────────────────
+// ── Team detail panel ──────────────────────────────────────────────────────────
 function TeamDetail({ team }: { team: Team }) {
   const name = team.team_name ?? `Team ${team.team_number}`;
   const initials = name.split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
@@ -96,12 +123,11 @@ function TeamDetail({ team }: { team: Team }) {
         </div>
       </div>
 
-      {/* Placeholder stats — wired to real data in Tier 6 */}
       <div className="space-y-2.5 mb-3">
         {[
-          { label: 'Avg score',  value: '—' },
-          { label: 'Win rate',   value: '—' },
-          { label: 'Auto pts',   value: '—' },
+          { label: 'City',    value: team.city ?? '—' },
+          { label: 'State',   value: team.state_prov ?? '—' },
+          { label: 'Rookie',  value: team.rookie_year?.toString() ?? '—' },
         ].map(({ label, value }) => (
           <div key={label} className="flex justify-between items-center">
             <span className="text-[11px] text-slate-600">{label}</span>
@@ -110,34 +136,25 @@ function TeamDetail({ team }: { team: Team }) {
         ))}
       </div>
 
-      {[
-        { label: 'Teleop score', pct: 0 },
-        { label: 'Endgame rate', pct: 0 },
-        { label: 'Auto success', pct: 0 },
-      ].map(({ label, pct }) => (
-        <div key={label} className="mb-2">
-          <p className="text-[11px] text-slate-600 mb-1">{label}</p>
-          <div className="h-1 bg-app-muted rounded-full">
-            <div className="h-1 bg-brand rounded-full" style={{ width: `${pct}%` }} />
-          </div>
-        </div>
-      ))}
-
+      {team.school_name && (
+        <p className="text-[11px] text-slate-600 border-t border-app-border pt-3 mt-2">
+          {team.school_name}
+        </p>
+      )}
       <p className="text-[10px] text-slate-700 mt-3">
-        Detailed stats available after match data is synced
+        Match analytics available in Tier 6
       </p>
     </div>
   );
 }
 
-// ── Event Card ────────────────────────────────────────────────────────────────
-function EventCard({ event, selected, onClick }: {
-  event: Event;
-  selected: boolean;
-  onClick: () => void;
-}) {
+// ── Event Card ─────────────────────────────────────────────────────────────────
+function EventCard({
+  event, selected, onClick,
+}: { event: Event; selected: boolean; onClick: () => void }) {
   const status = eventStatus(event);
-  const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const fmt = (d: string) =>
+    new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
   return (
     <button
@@ -169,14 +186,16 @@ function EventCard({ event, selected, onClick }: {
         )}
         <span className="flex items-center gap-1 text-[11px] text-slate-500">
           <Users size={10} />
-          {event.team_count > 0 ? `${event.team_count} teams` : `${event.match_count} matches`}
+          {event.team_count > 0
+            ? `${event.team_count} teams`
+            : `${event.match_count} matches`}
         </span>
       </div>
     </button>
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// ── Main Page ──────────────────────────────────────────────────────────────────
 type TabKey = 'events' | 'matches' | 'teams';
 
 export default function DashboardPage() {
@@ -187,21 +206,14 @@ export default function DashboardPage() {
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
   const [eventSearch, setEventSearch] = useState('');
 
-  const { data: events = [], isLoading: eventsLoading } = useQuery<Event[]>({
-    queryKey: ['events', CURRENT_YEAR],
-    queryFn: () => api.get<Event[]>(`/events?year=${CURRENT_YEAR}`).then(r => r.data),
-  });
+  const {
+    data: events = [],
+    isLoading: eventsLoading,
+    isFetching: eventsFetching,
+  } = useQuery(eventsQuery(CURRENT_YEAR));
 
-  const { data: eventTeams = [] } = useQuery<Team[]>({
-    queryKey: ['event-teams', selectedEventId],
-    queryFn: () => api.get<Team[]>(`/events/${selectedEventId}/teams`).then(r => r.data),
-    enabled: !!selectedEventId,
-  });
-
-  const { data: allTeams = [] } = useQuery<Team[]>({
-    queryKey: ['teams'],
-    queryFn: () => api.get<Team[]>('/teams').then(r => r.data),
-  });
+  const { data: eventTeams = [] } = useQuery(eventTeamsQuery(selectedEventId));
+  const { data: allTeams = [] }   = useQuery(teamsQuery());
 
   const filteredEvents = events.filter(e =>
     e.name.toLowerCase().includes(eventSearch.toLowerCase()) ||
@@ -209,8 +221,11 @@ export default function DashboardPage() {
   );
 
   const selectedEvent = events.find(e => e.event_id === selectedEventId) ?? null;
-  const selectedTeam  = (selectedEventId ? eventTeams : allTeams).find(t => t.team_id === selectedTeamId) ?? null;
+  const selectedTeam  = (selectedEventId ? eventTeams : allTeams)
+    .find(t => t.team_id === selectedTeamId) ?? null;
   const displayTeams  = selectedEventId ? eventTeams : allTeams;
+
+  const totalMatches = events.reduce((a, e) => a + (e.match_count ?? 0), 0);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -220,9 +235,10 @@ export default function DashboardPage() {
           <p className="text-[15px] font-medium text-white">2025 Season Dashboard</p>
           <p className="text-[11px] text-slate-600 mt-0.5">Reefscape — active season</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <LiveIndicator isFetching={eventsFetching} />
           <span className="text-[11px] text-slate-600 bg-app-card border border-app-border px-2 py-1 rounded-lg">
-            Welcome, {user?.username}
+            {user ? `Signed in as ${user.username}` : 'Viewing as guest'}
           </span>
         </div>
       </div>
@@ -231,10 +247,29 @@ export default function DashboardPage() {
       <div className="flex-1 overflow-y-auto p-6 space-y-5">
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatCard label="Events tracked"  value={events.length}                  sub={`${CURRENT_YEAR} season`} />
-          <StatCard label="Teams indexed"   value={allTeams.length || '—'}         sub="via TBA sync" />
-          <StatCard label="Matches logged"  value={events.reduce((a, e) => a + e.match_count, 0) || '—'} sub="across all events" />
-          <StatCard label="Observations"    value="—"                              sub="manual + CV" />
+          <StatCard
+            label="Events tracked"
+            value={events.length}
+            sub={`${CURRENT_YEAR} season`}
+            loading={eventsLoading}
+          />
+          <StatCard
+            label="Teams indexed"
+            value={allTeams.length || '—'}
+            sub="via TBA sync"
+            loading={eventsLoading}
+          />
+          <StatCard
+            label="Matches logged"
+            value={totalMatches || '—'}
+            sub="across all events"
+            loading={eventsLoading}
+          />
+          <StatCard
+            label="Observations"
+            value="—"
+            sub="manual + CV"
+          />
         </div>
 
         {/* Tabs */}
@@ -259,7 +294,9 @@ export default function DashboardPage() {
         {activeTab === 'events' && (
           <>
             <div className="flex items-center justify-between">
-              <p className="text-[13px] font-medium text-white">Upcoming &amp; recent events</p>
+              <p className="text-[13px] font-medium text-white">
+                Upcoming &amp; recent events
+              </p>
               <div className="flex items-center gap-1.5 bg-app-card border border-app-border rounded-lg px-2.5 py-1.5 w-44">
                 <svg width="11" height="11" fill="none" viewBox="0 0 24 24" className="text-slate-600 flex-shrink-0">
                   <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
@@ -285,7 +322,7 @@ export default function DashboardPage() {
                 <p className="text-slate-500 text-sm">No events found</p>
                 <p className="text-slate-700 text-xs mt-1">
                   {events.length === 0
-                    ? 'Use TBA Sync in the sidebar to import events'
+                    ? 'The scheduler will auto-populate events shortly, or use TBA Sync in the sidebar'
                     : 'Try a different search term'}
                 </p>
               </div>
@@ -297,7 +334,9 @@ export default function DashboardPage() {
                     event={event}
                     selected={event.event_id === selectedEventId}
                     onClick={() => {
-                      setSelectedEventId(prev => prev === event.event_id ? null : event.event_id);
+                      setSelectedEventId(prev =>
+                        prev === event.event_id ? null : event.event_id
+                      );
                       setSelectedTeamId(null);
                     }}
                   />
@@ -305,14 +344,16 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Teams panel (shown when an event is selected) */}
+            {/* Teams panel */}
             {selectedEventId && (
               <>
                 <div className="h-px bg-app-border" />
                 <div className="flex items-center justify-between">
                   <p className="text-[13px] font-medium text-white">
                     Teams at {selectedEvent?.name}
-                    <span className="text-slate-600 font-normal ml-1">· {eventTeams.length} teams</span>
+                    <span className="text-slate-600 font-normal ml-1">
+                      · {eventTeams.length} teams
+                    </span>
                   </p>
                   <button
                     onClick={() => navigate('/events')}
@@ -323,7 +364,9 @@ export default function DashboardPage() {
                 </div>
 
                 {eventTeams.length === 0 ? (
-                  <p className="text-slate-600 text-xs">No teams synced for this event yet.</p>
+                  <p className="text-slate-600 text-xs">
+                    No teams synced for this event yet — scheduler will update automatically.
+                  </p>
                 ) : (
                   <div className="flex gap-3">
                     <div className="flex-1 min-w-0 space-y-0.5">
@@ -332,12 +375,16 @@ export default function DashboardPage() {
                           key={team.team_id}
                           team={team}
                           selected={team.team_id === selectedTeamId}
-                          onClick={() => setSelectedTeamId(prev => prev === team.team_id ? null : team.team_id)}
+                          onClick={() =>
+                            setSelectedTeamId(prev =>
+                              prev === team.team_id ? null : team.team_id
+                            )
+                          }
                         />
                       ))}
                       {eventTeams.length > 8 && (
                         <p className="text-[11px] text-slate-600 px-2.5 pt-1">
-                          +{eventTeams.length - 8} more teams
+                          +{eventTeams.length - 8} more — see Full view
                         </p>
                       )}
                     </div>
@@ -349,7 +396,6 @@ export default function DashboardPage() {
           </>
         )}
 
-        {/* Matches / Teams tabs — placeholder until Tier 6 */}
         {activeTab !== 'events' && (
           <div className="bg-app-card border border-app-border rounded-xl p-10 text-center">
             <p className="text-slate-500 text-sm capitalize">{activeTab} view</p>
