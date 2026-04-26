@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   CalendarDays,
@@ -9,13 +9,18 @@ import {
   ClipboardPen,
   RefreshCw,
   LogOut,
+  LogIn,
   ChevronRight,
+  Lock,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import api from '@/api/client';
 import { clsx } from 'clsx';
 
 type SyncState = 'idle' | 'syncing' | 'done' | 'error';
+
+// Routes that require login — used to show the lock hint
+const AUTH_REQUIRED = new Set(['/alliance', '/observations/new']);
 
 const NAV_ITEMS = [
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
@@ -41,6 +46,7 @@ function initials(username: string) {
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [syncState, setSyncState] = useState<SyncState>('idle');
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [syncEventKey, setSyncEventKey] = useState('');
@@ -110,45 +116,58 @@ export default function Sidebar() {
         <p className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-widest text-slate-600">
           Navigation
         </p>
-        {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
-            className={({ isActive }) =>
-              clsx(
-                'flex items-center gap-2.5 mx-1.5 px-3 py-[7px] rounded-lg text-[13px] transition-colors',
-                isActive
-                  ? 'bg-brand/10 text-brand'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-app-card'
-              )
-            }
-          >
-            <Icon size={15} className="flex-shrink-0" />
-            {label}
-          </NavLink>
-        ))}
+        {NAV_ITEMS.map(({ to, icon: Icon, label }) => {
+          const needsAuth = AUTH_REQUIRED.has(to);
+          const locked = needsAuth && !user;
+          return (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/'}
+              className={({ isActive }) =>
+                clsx(
+                  'flex items-center gap-2.5 mx-1.5 px-3 py-[7px] rounded-lg text-[13px] transition-colors',
+                  isActive
+                    ? 'bg-brand/10 text-brand'
+                    : locked
+                    ? 'text-slate-600 hover:text-slate-500 hover:bg-app-card'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-app-card'
+                )
+              }
+            >
+              <Icon size={15} className="flex-shrink-0" />
+              <span className="flex-1">{label}</span>
+              {locked && <Lock size={11} className="flex-shrink-0 text-slate-700" />}
+            </NavLink>
+          );
+        })}
 
         <p className="px-4 pt-4 pb-1 text-[10px] uppercase tracking-widest text-slate-600">
           Scouting
         </p>
-        {SCOUT_ITEMS.map(({ to, icon: Icon, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) =>
-              clsx(
-                'flex items-center gap-2.5 mx-1.5 px-3 py-[7px] rounded-lg text-[13px] transition-colors',
-                isActive
-                  ? 'bg-brand/10 text-brand'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-app-card'
-              )
-            }
-          >
-            <Icon size={15} className="flex-shrink-0" />
-            {label}
-          </NavLink>
-        ))}
+        {SCOUT_ITEMS.map(({ to, icon: Icon, label }) => {
+          const locked = !user;
+          return (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                clsx(
+                  'flex items-center gap-2.5 mx-1.5 px-3 py-[7px] rounded-lg text-[13px] transition-colors',
+                  isActive
+                    ? 'bg-brand/10 text-brand'
+                    : locked
+                    ? 'text-slate-600 hover:text-slate-500 hover:bg-app-card'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-app-card'
+                )
+              }
+            >
+              <Icon size={15} className="flex-shrink-0" />
+              <span className="flex-1">{label}</span>
+              {locked && <Lock size={11} className="flex-shrink-0 text-slate-700" />}
+            </NavLink>
+          );
+        })}
 
         {/* TBA Sync */}
         <p className="px-4 pt-4 pb-1 text-[10px] uppercase tracking-widest text-slate-600">
@@ -162,7 +181,7 @@ export default function Sidebar() {
           >
             <RefreshCw
               size={15}
-              className={clsx('flex-shrink-0 transition-transform', syncState === 'syncing' && 'animate-spin')}
+              className={clsx('flex-shrink-0', syncState === 'syncing' && 'animate-spin')}
             />
             TBA Sync
           </button>
@@ -174,7 +193,10 @@ export default function Sidebar() {
                 type="text"
                 value={syncEventKey}
                 onChange={e => setSyncEventKey(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleSync(); if (e.key === 'Escape') setShowSyncInput(false); }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleSync();
+                  if (e.key === 'Escape') setShowSyncInput(false);
+                }}
                 placeholder="e.g. 2025calv"
                 className="flex-1 bg-app-muted text-white text-xs px-2 py-1 rounded border border-app-border outline-none focus:border-brand/60 placeholder:text-slate-600 font-mono min-w-0"
               />
@@ -194,30 +216,41 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* User */}
+      {/* User / Sign-in */}
       <div className="border-t border-app-border p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-full bg-brand/20 flex items-center justify-center flex-shrink-0 text-[11px] font-medium text-brand">
-              {user ? initials(user.username) : '??'}
+        {user ? (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-full bg-brand/20 flex items-center justify-center flex-shrink-0 text-[11px] font-medium text-brand">
+                {initials(user.username)}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-white truncate leading-tight">
+                  {user.username}
+                </p>
+                <p className="text-[10px] text-slate-600 truncate capitalize">
+                  {roleLabel(user.role)}
+                </p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-white truncate leading-tight">
-                {user?.username ?? 'Unknown'}
-              </p>
-              <p className="text-[10px] text-slate-600 truncate capitalize">
-                {user ? roleLabel(user.role) : ''}
-              </p>
-            </div>
+            <button
+              onClick={logout}
+              title="Log out"
+              className="text-slate-600 hover:text-slate-400 transition-colors flex-shrink-0"
+            >
+              <LogOut size={14} />
+            </button>
           </div>
+        ) : (
           <button
-            onClick={logout}
-            title="Log out"
-            className="text-slate-600 hover:text-slate-400 transition-colors flex-shrink-0"
+            onClick={() => navigate('/login')}
+            className="flex items-center gap-2 w-full px-3 py-2 rounded-lg bg-app-card border border-app-border hover:border-brand/40 hover:bg-brand/5 transition-all text-[13px] text-slate-400 hover:text-brand"
           >
-            <LogOut size={14} />
+            <LogIn size={14} className="flex-shrink-0" />
+            <span>Sign in</span>
+            <span className="ml-auto text-[10px] text-slate-600">to scout</span>
           </button>
-        </div>
+        )}
       </div>
     </aside>
   );

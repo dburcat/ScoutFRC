@@ -1,9 +1,12 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import Sidebar from '@/pages/Sidebar';
 import LoginPage from '@/pages/LoginPage';
 import DashboardPage from '@/pages/DashboardPage';
 import EventsPage from '@/pages/EventsPage';
+
+// Routes that require a logged-in user
+const PROTECTED_PATHS = ['/alliance', '/observations/new'];
 
 function AppShell() {
   return (
@@ -13,16 +16,26 @@ function AppShell() {
         <Routes>
           <Route path="/"        element={<DashboardPage />} />
           <Route path="/events"  element={<EventsPage />} />
-          {/* Placeholder routes — to be built in later tiers */}
+          {/* Placeholder routes — built in later tiers */}
           <Route path="/teams"     element={<PlaceholderPage title="Teams" />} />
           <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
-          <Route path="/alliance"  element={<PlaceholderPage title="Alliance Builder" />} />
-          <Route path="/observations/new" element={<PlaceholderPage title="Add Observation" />} />
+          <Route path="/alliance"  element={<AuthGate><PlaceholderPage title="Alliance Builder" /></AuthGate>} />
+          <Route path="/observations/new" element={<AuthGate><PlaceholderPage title="Add Observation" /></AuthGate>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
     </div>
   );
+}
+
+/** Wraps a route that needs auth — redirects to /login if not signed in */
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) return <LoadingSpinner />;
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
+  return <>{children}</>;
 }
 
 function PlaceholderPage({ title }: { title: string }) {
@@ -36,29 +49,28 @@ function PlaceholderPage({ title }: { title: string }) {
   );
 }
 
-function ProtectedRoutes() {
-  const { user, isLoading } = useAuth();
-
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-app-bg">
-        <div className="flex items-center gap-2 text-slate-600 text-sm">
-          <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
-          Loading…
-        </div>
+function LoadingSpinner() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-app-bg">
+      <div className="flex items-center gap-2 text-slate-600 text-sm">
+        <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+        Loading…
       </div>
-    );
-  }
-
-  if (!user) return <Navigate to="/login" replace />;
-  return <AppShell />;
+    </div>
+  );
 }
 
 export default function App() {
+  const { isLoading } = useAuth();
+
+  // Wait for auth check before rendering anything to avoid flash
+  if (isLoading) return <LoadingSpinner />;
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/*"     element={<ProtectedRoutes />} />
+      {/* All other routes get the shell — individual routes guard themselves */}
+      <Route path="/*" element={<AppShell />} />
     </Routes>
   );
 }

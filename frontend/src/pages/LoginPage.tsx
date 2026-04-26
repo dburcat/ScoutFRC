@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import api from '@/api/client';
 import { AuthResponse } from '@/types/auth';
@@ -7,6 +7,8 @@ import { AuthResponse } from '@/types/auth';
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? "/";
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -25,7 +27,7 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
       await login(res.data);
-      navigate('/');
+      navigate(from, { replace: true });
     } catch {
       setError('Invalid username or password');
     } finally {
