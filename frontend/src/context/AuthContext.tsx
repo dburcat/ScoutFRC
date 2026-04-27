@@ -21,7 +21,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const token = localStorage.getItem('token'); 
       if (token) {
         try {
-          const response = await api.get<User>('/auth/me'); // Specify the return type
+          const response = await api.get<User>('/me'); // Specify the return type
           setUser(response.data);
         } catch (error) {
           localStorage.removeItem('token');
@@ -35,7 +35,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const login = async (data: AuthResponse) => {
     localStorage.setItem('token', data.access_token);
-    const response = await api.get<User>('/auth/me');
+    const response = await api.get<User>('/me');
     setUser(response.data);
   };
 

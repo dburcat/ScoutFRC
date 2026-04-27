@@ -1,10 +1,10 @@
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 
 class UserBase(BaseModel):
     username: str
-    email: EmailStr
+    email: str
     role: str = "SCOUT"
     team_id: Optional[int] = None
     is_active: bool = True

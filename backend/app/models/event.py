@@ -12,7 +12,7 @@ class Event(Base):
 
     event_id: Mapped[int] = mapped_column(primary_key=True)
     tba_event_key: Mapped[str] = mapped_column(String(20), unique=True, index=True)
-    name: Mapped[str] = mapped_column(String(120))
+    name: Mapped[str] = mapped_column(String(255))
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     state_prov: Mapped[str | None] = mapped_column(String(60), nullable=True)
     country: Mapped[str | None] = mapped_column(String(60), nullable=True)
