@@ -11,9 +11,13 @@ if str(PROJECT_ROOT) not in sys.path:
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from fastapi.testclient import TestClient
+from datetime import timedelta
 
 from app.core.config import settings
-from app.models import Base
+from app.core.security import create_access_token, get_password_hash
+from app.models import Base, User
+from app.main import app
 
 
 engine = create_engine(settings.DATABASE_URL, future=True)
@@ -33,3 +37,71 @@ def db_session() -> Generator[Session, None, None]:
         if transaction.is_active:
             transaction.rollback()
         connection.close()
+
+
+@pytest.fixture
+def test_user(db_session) -> User:
+    """Create a test user with SCOUT role"""
+    user = User(
+        email="scout@test.com",
+        username="testscout",
+        hashed_password=get_password_hash("testpass123"),
+        role="SCOUT",
+        team_id=1,
+        is_active=True
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def admin_user(db_session) -> User:
+    """Create a test admin user"""
+    user = User(
+        email="admin@test.com",
+        username="testadmin",
+        hashed_password=get_password_hash("adminpass123"),
+        role="SYSTEM_ADMIN",
+        team_id=None,
+        is_active=True
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def test_user_token(test_user) -> str:
+    """Generate auth token for test user"""
+    return create_access_token(
+        subject=test_user.user_id,
+        expires_delta=timedelta(days=1)
+    )
+
+
+@pytest.fixture
+def admin_token(admin_user) -> str:
+    """Generate auth token for admin user"""
+    return create_access_token(
+        subject=admin_user.user_id,
+        expires_delta=timedelta(days=1)
+    )
+
+
+@pytest.fixture
+def client_with_auth(test_user_token) -> TestClient:
+    """TestClient with auth header for test user"""
+    client = TestClient(app)
+    client.headers.update({"Authorization": f"Bearer {test_user_token}"})
+    return client
+
+
+@pytest.fixture
+def admin_client(admin_token) -> TestClient:
+    """TestClient with auth header for admin user"""
+    client = TestClient(app)
+    client.headers.update({"Authorization": f"Bearer {admin_token}"})
+    return client

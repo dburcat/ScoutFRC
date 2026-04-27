@@ -1,14 +1,18 @@
 from app.schemas.scouting_observation_schema import ScoutingObservation_schema
 from app.crud import crud_scouting_observation
 from app.db.session import get_db
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 scouting_observation_router = APIRouter(prefix="/scouting_observations", tags=["scouting_observations"])
 
 @scouting_observation_router.get("/", response_model=list[ScoutingObservation_schema])
-def get_scouting_observations(db: Session = Depends(get_db)):
-        scouting_observations = crud_scouting_observation.get_scouting_observations(db)
+def get_scouting_observations(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+        scouting_observations = crud_scouting_observation.get_scouting_observations(db, skip=skip, limit=limit)
         return scouting_observations
 
 @scouting_observation_router.get("/{scouting_observation_id}", response_model=ScoutingObservation_schema)
