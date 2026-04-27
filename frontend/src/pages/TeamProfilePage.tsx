@@ -8,7 +8,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { type Team, type Match } from '@/types/models';
-import { teamMatchesQuery } from '@/api/queries';
+import { teamQuery, teamMatchesQuery } from '@/api/queries';
 import { clsx } from 'clsx';
 
 function StatBadge({ label, value, icon: Icon }: { label: string; value: string | number; icon: React.ReactNode }) {
@@ -67,7 +67,8 @@ export default function TeamProfilePage() {
   const navigate = useNavigate();
   const teamIdNum = teamId ? parseInt(teamId) : null;
 
-  const { data: matches = [], isLoading } = useQuery(teamMatchesQuery(teamIdNum));
+  const { data: team, isLoading: teamLoading } = useQuery(teamQuery(teamIdNum));
+  const { data: matches = [], isLoading: matchesLoading } = useQuery(teamMatchesQuery(teamIdNum));
 
   // Calculate stats from matches
   const total = matches.length;
@@ -121,8 +122,12 @@ export default function TeamProfilePage() {
             <ArrowLeft size={18} />
           </button>
           <div>
-            <p className="text-[15px] font-medium text-white">Team {teamIdNum}</p>
-            <p className="text-[11px] text-slate-600 mt-0.5">Robot performance profile</p>
+            <p className="text-[15px] font-medium text-white">
+              Team {team?.team_number || teamIdNum}
+            </p>
+            <p className="text-[11px] text-slate-600 mt-0.5">
+              {team?.team_name ? `${team.team_name} • Robot performance profile` : 'Robot performance profile'}
+            </p>
           </div>
         </div>
       </div>
@@ -193,7 +198,7 @@ export default function TeamProfilePage() {
         {/* Matches table */}
         <div>
           <h3 className="text-[13px] font-medium text-white mb-3">Match history</h3>
-          {isLoading ? (
+          {matchesLoading ? (
             <div className="space-y-2">
               {[...Array(5)].map((_, i) => (
                 <div key={i} className="h-12 bg-app-card rounded animate-pulse" />

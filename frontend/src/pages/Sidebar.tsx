@@ -7,118 +7,23 @@ import {
   BarChart2,
   Star,
   ClipboardPen,
-  RefreshCw,
-  Download,
   LogOut,
   LogIn,
-  ChevronRight,
   Lock,
   Database,
+  type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
-import api from '@/api/client';
 import { clsx } from 'clsx';
 
 type SyncState = 'idle' | 'syncing' | 'done' | 'error';
 
 const AUTH_REQUIRED = new Set(['/alliance', '/observations/new']);
 
-const NAV_ITEMS = [
-  { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/events',    icon: CalendarDays,    label: 'Events' },
-  { to: '/teams',     icon: Users,           label: 'Teams' },
-  { to: '/analytics', icon: BarChart2,       label: 'Analytics' },
-  { to: '/alliance',  icon: Star,            label: 'Alliance Builder' },
-];
-
-const SCOUT_ITEMS = [
-  { to: '/observations/new', icon: ClipboardPen, label: 'Add Observation' },
-];
-
-function roleLabel(role: string) {
-  return role.replace(/_/g, ' ');
-}
-
-function initials(username: string) {
-  const parts = username.split(/[\s_-]/);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return username.slice(0, 2).toUpperCase();
-}
-
-function SyncStatusDot({ state }: { state: SyncState }) {
-  return (
-    <div className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', {
-      'bg-slate-600':           state === 'idle',
-      'bg-brand animate-pulse': state === 'syncing',
-      'bg-green-500':           state === 'done',
-      'bg-red-500':             state === 'error',
-    })} />
-  );
-}
-
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-
-  // Season bootstrap state
-  const [seasonState, setSeasonState]       = useState<SyncState>('idle');
-  const [seasonYear, setSeasonYear]         = useState(String(new Date().getFullYear()));
-  const [showSeasonInput, setShowSeasonInput] = useState(false);
-  const [seasonMsg, setSeasonMsg]           = useState('');
-
-  // Single event sync state
-  const [eventState, setEventState]         = useState<SyncState>('idle');
-  const [eventKey, setEventKey]             = useState('');
-  const [showEventInput, setShowEventInput] = useState(false);
-  const [eventMsg, setEventMsg]             = useState('');
-
-  const handleSeasonBootstrap = async () => {
-    if (seasonState === 'syncing') return;
-    if (!showSeasonInput) { setShowSeasonInput(true); return; }
-    const year = parseInt(seasonYear);
-    if (!year || year < 1992 || year > 2100) {
-      setSeasonMsg('Enter a valid year');
-      return;
-    }
-    setSeasonState('syncing');
-    setSeasonMsg(`Fetching all ${year} events…`);
-    try {
-      const res = await api.post<{ events_synced: number }>(`/admin/sync-season/${year}`);
-      setSeasonState('done');
-      setSeasonMsg(`✓ ${res.data.events_synced} events imported`);
-      setShowSeasonInput(false);
-      setTimeout(() => { setSeasonState('idle'); setSeasonMsg(''); }, 10000);
-    } catch (err: any) {
-      setSeasonState('error');
-      setSeasonMsg(err?.response?.data?.detail ?? 'Bootstrap failed');
-      setTimeout(() => { setSeasonState('idle'); setSeasonMsg(''); }, 6000);
-    }
-  };
-
-  const handleEventSync = async () => {
-    if (eventState === 'syncing') return;
-    if (!showEventInput) { setShowEventInput(true); return; }
-    const key = eventKey.trim();
-    if (!key) { setEventMsg('Enter an event key'); return; }
-    setEventState('syncing');
-    setEventMsg(`Syncing ${key}…`);
-    try {
-      const res = await api.post<{ teams_synced: number; matches_synced: number }>(
-        `/admin/sync-event/${key}`
-      );
-      setEventState('done');
-      setEventMsg(`✓ ${res.data.teams_synced} teams, ${res.data.matches_synced} matches`);
-      setEventKey('');
-      setShowEventInput(false);
-      setTimeout(() => { setEventState('idle'); setEventMsg(''); }, 10000);
-    } catch (err: any) {
-      setEventState('error');
-      const detail = err?.response?.data?.detail ?? 'Sync failed';
-      setEventMsg(detail.includes('404') ? 'Event key not found on TBA' : detail);
-      setTimeout(() => { setEventState('idle'); setEventMsg(''); }, 6000);
-    }
-  };
 
   // Auto sync status — polls backend to show if sync is happening
   const syncStatus = useSyncStatus();
@@ -214,121 +119,44 @@ export default function Sidebar() {
           );
         })}
 
-        {/* ── Data section ── */}
+        {/* ── Data Sync Status ── */}
         <p className="px-4 pt-4 pb-1 text-[10px] uppercase tracking-widest text-slate-600">
-          Data
+          Sync Status
         </p>
 
-        {/* 1. Season Bootstrap */}
         <div className="mx-1.5 mb-1.5 rounded-lg border border-app-border overflow-hidden">
-          <button
-            onClick={handleSeasonBootstrap}
-            disabled={seasonState === 'syncing'}
-            className="flex items-center gap-2.5 w-full px-3 py-[7px] text-[13px] text-slate-400 hover:text-slate-200 hover:bg-app-card transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Download
-              size={15}
-              className={clsx('flex-shrink-0', seasonState === 'syncing' && 'animate-pulse')}
-            />
-            <span className="flex-1 text-left">Bootstrap Season</span>
-          </button>
-
-          {showSeasonInput && (
-            <div className="px-3 py-2 border-t border-app-border bg-app-card flex gap-1.5 items-center">
-              <input
-                autoFocus
-                type="number"
-                value={seasonYear}
-                onChange={e => setSeasonYear(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleSeasonBootstrap();
-                  if (e.key === 'Escape') setShowSeasonInput(false);
-                }}
-                placeholder="e.g. 2026"
-                className="flex-1 bg-app-muted text-white text-xs px-2 py-1 rounded border border-app-border outline-none focus:border-brand/60 placeholder:text-slate-600 font-mono min-w-0"
-              />
-              <button onClick={handleSeasonBootstrap} className="text-brand flex-shrink-0">
-                <ChevronRight size={14} />
-              </button>
+          <div className={clsx('px-3 py-3 flex items-center justify-between', {
+            'bg-brand/10': isAutoSyncing,
+            'bg-green-500/10': hasData && !isAutoSyncing,
+          })}>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Database className={clsx('flex-shrink-0', {
+                'text-brand animate-pulse': isAutoSyncing,
+                'text-green-500': hasData && !isAutoSyncing,
+                'text-slate-600': !hasData,
+              })} size={15} />
+              <div className="min-w-0">
+                <p className={clsx('text-[11px] truncate', {
+                  'text-brand font-medium': isAutoSyncing,
+                  'text-green-500': hasData && !isAutoSyncing,
+                  'text-slate-500': !hasData,
+                })}>
+                  {isAutoSyncing ? 'Syncing data…' : hasData ? 'Sync complete' : 'No data yet'}
+                </p>
+                <p className={clsx('text-[10px] truncate', {
+                  'text-slate-600': isAutoSyncing || (hasData && !isAutoSyncing),
+                  'text-slate-700': !hasData && !isAutoSyncing,
+                })}>
+                  {hasData ? `Updated ${lastSyncTime}` : 'Initializing…'}
+                </p>
+              </div>
             </div>
-          )}
-
-          {(seasonMsg || seasonState !== 'idle') && (
-            <div className="flex items-start gap-2 px-3 py-[7px] border-t border-app-border">
-              <SyncStatusDot state={seasonState} />
-              <span className={clsx('text-[11px] leading-tight', {
-                'text-slate-600': seasonState === 'idle',
-                'text-brand':     seasonState === 'syncing',
-                'text-green-400': seasonState === 'done',
-                'text-red-400':   seasonState === 'error',
-              })}>
-                {seasonMsg || (seasonState === 'idle' ? 'Import all season events' : '')}
-              </span>
-            </div>
-          )}
-
-          {!seasonMsg && seasonState === 'idle' && (
-            <div className="flex items-center gap-2 px-3 py-[7px] border-t border-app-border">
-              <SyncStatusDot state="idle" />
-              <span className="text-[11px] text-slate-600">Import all season events</span>
-            </div>
-          )}
-        </div>
-
-        {/* 2. Single Event Sync */}
-        <div className="mx-1.5 rounded-lg border border-app-border overflow-hidden">
-          <button
-            onClick={handleEventSync}
-            disabled={eventState === 'syncing'}
-            className="flex items-center gap-2.5 w-full px-3 py-[7px] text-[13px] text-slate-400 hover:text-slate-200 hover:bg-app-card transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <RefreshCw
-              size={15}
-              className={clsx('flex-shrink-0', eventState === 'syncing' && 'animate-spin')}
-            />
-            <span className="flex-1 text-left">Sync Event</span>
-          </button>
-
-          {showEventInput && (
-            <div className="px-3 py-2 border-t border-app-border bg-app-card flex gap-1.5 items-center">
-              <input
-                autoFocus
-                type="text"
-                value={eventKey}
-                onChange={e => setEventKey(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleEventSync();
-                  if (e.key === 'Escape') setShowEventInput(false);
-                }}
-                placeholder="e.g. 2026calv"
-                className="flex-1 bg-app-muted text-white text-xs px-2 py-1 rounded border border-app-border outline-none focus:border-brand/60 placeholder:text-slate-600 font-mono min-w-0"
-              />
-              <button onClick={handleEventSync} className="text-brand flex-shrink-0">
-                <ChevronRight size={14} />
-              </button>
-            </div>
-          )}
-
-          {(eventMsg || eventState !== 'idle') && (
-            <div className="flex items-start gap-2 px-3 py-[7px] border-t border-app-border">
-              <SyncStatusDot state={eventState} />
-              <span className={clsx('text-[11px] leading-tight', {
-                'text-slate-600': eventState === 'idle',
-                'text-brand':     eventState === 'syncing',
-                'text-green-400': eventState === 'done',
-                'text-red-400':   eventState === 'error',
-              })}>
-                {eventMsg || ''}
-              </span>
-            </div>
-          )}
-
-          {!eventMsg && eventState === 'idle' && (
-            <div className="flex items-center gap-2 px-3 py-[7px] border-t border-app-border">
-              <SyncStatusDot state="idle" />
-              <span className="text-[11px] text-slate-600">Teams + matches per event</span>
-            </div>
-          )}
+          </div>
+          <div className="flex items-center gap-3 px-3 py-2 border-t border-app-border text-[10px] text-slate-600 bg-app-muted/20">
+            <span>{syncStatus.data?.events_count ?? 0} events</span>
+            <span>•</span>
+            <span>{syncStatus.data?.teams_count ?? 0} teams</span>
+          </div>
         </div>
       </div>
 
@@ -370,4 +198,42 @@ export default function Sidebar() {
       </div>
     </aside>
   );
+}
+
+// ── Navigation Items ──────────────────────────────────────────────────────
+interface NavItem {
+  to: string;
+  icon: LucideIcon;
+  label: string;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/events', icon: CalendarDays, label: 'Events' },
+  { to: '/teams', icon: Users, label: 'Teams' },
+  { to: '/alliance', icon: BarChart2, label: 'Alliance' },
+];
+
+const SCOUT_ITEMS: NavItem[] = [
+  { to: '/observations', icon: ClipboardPen, label: 'Observations' },
+  { to: '/observations/new', icon: Star, label: 'New Observation' },
+];
+
+// ── Helper Functions ──────────────────────────────────────────────────────
+function initials(username: string): string {
+  return username
+    .split(' ')
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function roleLabel(role: string): string {
+  const labels: Record<string, string> = {
+    admin: 'Administrator',
+    scout: 'Scout',
+    viewer: 'Viewer',
+  };
+  return labels[role] || role;
 }

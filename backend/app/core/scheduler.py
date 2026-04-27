@@ -22,7 +22,12 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.db.session import SessionLocal
-from app.integrations.sync_service import sync_all_active_events, sync_season_events
+from app.integrations.sync_service import (
+    sync_all_active_events,
+    sync_season_events,
+    sync_all_teams,
+    sync_events_for_years,
+)
 from app.models.event import Event
 
 logger = logging.getLogger(__name__)
@@ -101,6 +106,28 @@ def _job_bootstrap_season() -> None:
         sync_season_events(db, CURRENT_YEAR)
 
 
+def _job_startup_full_sync() -> None:
+    """
+    On startup, sync all historical data: all teams and events 2009-present.
+    This happens once when the server starts and prepopulates the database.
+    """
+    logger.info("Scheduler: startup full sync — syncing all teams and events")
+    with SessionLocal() as db:
+        try:
+            logger.info("Syncing all registered teams from TBA…")
+            teams_result = sync_all_teams(db)
+            logger.info("✓ Synced %d teams", teams_result["teams_synced"])
+        except Exception as exc:
+            logger.warning("Startup teams sync failed: %s", exc)
+        
+        try:
+            logger.info("Syncing all events 2009-%d from TBA…", CURRENT_YEAR)
+            events_result = sync_events_for_years(db, 2009, CURRENT_YEAR)
+            logger.info("✓ Synced %d events", events_result["events_synced"])
+        except Exception as exc:
+            logger.warning("Startup events sync failed: %s", exc)
+
+
 def _job_dynamic_reschedule() -> None:
     """
     Every minute, check whether we need the fast (2-min) or slow (30-min)
@@ -141,6 +168,9 @@ def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Call from FastAPI startup."""
     if _scheduler.running:
         return
+
+    # Run full startup sync immediately (once, on startup)
+    _job_startup_full_sync()
 
     # Active-event sync — starts at 2-min cadence, dynamic reschedule adjusts it
     _scheduler.add_job(

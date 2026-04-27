@@ -88,3 +88,7 @@ def get_event_matches(event_key: str) -> dict | list | None:
 
 def get_events_by_year(year: int) -> dict | list | None:
     return _get(f"/events/{year}")
+
+def get_teams_page(page: int = 0) -> dict | list | None:
+    """Fetch a page of all registered teams from TBA (500 per page)."""
+    return _get(f"/teams/{page}")

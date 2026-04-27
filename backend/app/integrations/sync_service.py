@@ -134,3 +134,72 @@ def sync_season_events(db: Session, year: int) -> dict:
     db.commit()
     logger.info("Bootstrapped %d events for %d", count, year)
     return {"year": year, "events_synced": count}
+
+
+def sync_all_teams(db: Session) -> dict:
+    """
+    Sync ALL registered teams from TBA (pages through entire team registry).
+    This pulls every team ever registered in FIRST, not just teams at specific events.
+    
+    Returns: { teams_synced: count, pages: pages_fetched }
+    """
+    logger.info("Syncing all teams from TBA (paginated)")
+    page = 0
+    total_teams = 0
+    
+    while True:
+        tba_teams = tba_client.get_teams_page(page)
+        
+        if tba_teams is None or len(tba_teams) == 0:
+            break
+        
+        for tba_team in tba_teams:
+            if isinstance(tba_team, dict):
+                tba_mapper.upsert_team(db, tba_team)
+                total_teams += 1
+        
+        page += 1
+        logger.debug("Synced teams page %d (%d teams so far)", page, total_teams)
+    
+    db.commit()
+    logger.info("Synced %d total teams across %d pages", total_teams, page)
+    return {"teams_synced": total_teams, "pages": page}
+
+
+def sync_events_for_years(db: Session, from_year: int, to_year: int) -> dict:
+    """
+    Sync ALL events from TBA for a range of years, then sync teams/matches for each.
+    
+    Returns: { years: [from, to], events_synced: count }
+    """
+    logger.info("Syncing events and data for years %d-%d", from_year, to_year)
+    
+    total_events = 0
+    
+    for year in range(from_year, to_year + 1):
+        logger.debug("Bootstrapping events for %d", year)
+        events_data = tba_client.get_events_by_year(year)
+        
+        if events_data is None or not isinstance(events_data, list):
+            logger.warning("No events found for year %d", year)
+            continue
+        
+        # First pass: upsert all event metadata
+        event_keys = []
+        for tba_event in events_data:
+            if isinstance(tba_event, dict):
+                tba_mapper.upsert_event(db, tba_event)
+                event_keys.append(tba_event.get("key"))
+                total_events += 1
+        
+        db.commit()
+        
+        # Second pass: sync teams and matches for each event
+        for event_key in event_keys:
+            try:
+                sync_event(db, event_key, triggered_by=None)
+            except Exception as exc:
+                logger.warning("Sync failed for %s: %s", event_key, exc)
+    
+    logger.info("Synced %d events for years %d-%d", total_events, from_year, to_year)
+    return {"years": [from_year, to_year], "events_synced": total_events}

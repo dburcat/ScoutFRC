@@ -39,9 +39,17 @@ export const eventQuery = (eventId: number) => ({
 // ── Teams ──────────────────────────────────────────────────────────────────
 export const teamsQuery = () => ({
   queryKey: ['teams'] as const,
-  queryFn:  () => api.get<Team[]>('/teams/').then(r => r.data),
+  queryFn:  () => api.get<Team[]>('/teams/?skip=0&limit=1000').then(r => r.data),
   refetchInterval: INTERVAL.teams,
   staleTime: 45_000,
+});
+
+export const teamQuery = (teamId: number | null) => ({
+  queryKey: ['team', teamId] as const,
+  queryFn:  () => api.get<Team>(`/teams/${teamId}`).then(r => r.data),
+  refetchInterval: INTERVAL.teams,
+  staleTime: 45_000,
+  enabled: !!teamId,
 });
 
 export const eventTeamsQuery = (eventId: number | null) => ({

@@ -6,6 +6,7 @@ import Sidebar from '@/pages/Sidebar';
 import LoginPage from '@/pages/LoginPage';
 import DashboardPage from '@/pages/DashboardPage';
 import EventsPage from '@/pages/EventsPage';
+import TeamsPage from '@/pages/TeamsPage';
 import TeamProfilePage from '@/pages/TeamProfilePage';
 import MatchDetailPage from '@/pages/MatchDetailPage';
 import AllianceBuilderPage from '@/pages/AllianceBuilderPage';
@@ -38,13 +39,13 @@ function AppShell() {
         <Routes>
           <Route path="/"        element={<DashboardPage />} />
           <Route path="/events"  element={<EventsPage />} />
+          <Route path="/teams"   element={<TeamsPage />} />
           <Route path="/teams/:teamId" element={<TeamProfilePage />} />
           <Route path="/matches/:matchId" element={<MatchDetailPage />} />
           <Route path="/events/:eventId/analytics" element={<EventAnalyticsPage />} />
           <Route path="/alliance"  element={<AuthGate><AllianceBuilderPage /></AuthGate>} />
           <Route path="/observations/new" element={<AuthGate><ObservationFormPage /></AuthGate>} />
           {/* Placeholder routes — built in later tiers */}
-          <Route path="/teams"     element={<PlaceholderPage title="Teams" />} />
           <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

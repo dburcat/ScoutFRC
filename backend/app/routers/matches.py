@@ -9,7 +9,7 @@ match_router = APIRouter(prefix="/matches", tags=["matches"])
 @match_router.get("/", response_model=list[Match_schema])
 def get_matches(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=10000),
     db: Session = Depends(get_db)
 ):
         matches = crud_match.get_matches(db, skip=skip, limit=limit)
@@ -26,7 +26,7 @@ def get_match(match_id: int, db: Session = Depends(get_db)):
 def get_matches_by_event(
     event_id: int,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=10000),
     db: Session = Depends(get_db)
 ):
         matches = crud_match.get_matches_by_event(event_id, db, skip=skip, limit=limit)

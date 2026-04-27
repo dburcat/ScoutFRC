@@ -9,7 +9,7 @@ from app.routers.deps import get_current_user
 from app.models.user import User
 from app.models.event import Event
 from app.models.team import Team
-from app.integrations.sync_service import sync_event, sync_season_events
+from app.integrations.sync_service import sync_event, sync_season_events, sync_all_teams, sync_events_for_years
 from app.integrations.tba_client import check_api_key
 from app.crud import crud_sync_log
 
@@ -153,3 +153,49 @@ def scheduler_status(current_user: User = Depends(require_admin)):
             "trigger": str(job.trigger),
         })
     return {"running": _scheduler.running, "jobs": jobs}
+
+
+@admin_router.post("/sync-all-teams")
+def sync_all_teams_endpoint(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    Sync ALL registered teams from TBA (pages through entire team registry).
+    This is a bulk operation and may take 1-2 minutes.
+    """
+    try:
+        result = sync_all_teams(db)
+    except RuntimeError as e:
+        logger.error("sync-all-teams failed: %s", e)
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.error("sync-all-teams unexpected: %s", e)
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"status": "ok", **result}
+
+
+@admin_router.post("/sync-years/{from_year}/{to_year}")
+def sync_years_endpoint(
+    from_year: int,
+    to_year: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    Sync all events and their teams/matches for a range of years.
+    Example: POST /admin/sync-years/2009/2026
+    This is a bulk operation and may take 10+ minutes depending on year range.
+    """
+    if from_year < 1992 or to_year > 2100 or from_year > to_year:
+        raise HTTPException(status_code=400, detail="Invalid year range")
+    
+    try:
+        result = sync_events_for_years(db, from_year, to_year)
+    except RuntimeError as e:
+        logger.error("sync-years/%d-%d failed: %s", from_year, to_year, e)
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.error("sync-years/%d-%d unexpected: %s", from_year, to_year, e)
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"status": "ok", **result}

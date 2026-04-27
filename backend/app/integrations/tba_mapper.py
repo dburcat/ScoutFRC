@@ -29,12 +29,12 @@ def upsert_event(db: Session, tba_event: dict) -> Event:
         .on_conflict_do_update(
             index_elements=["tba_event_key"],
             set_={
-                "name":       tba_event["name"],
-                "city":       tba_event.get("city"),
-                "state_prov": tba_event.get("state_prov"),
-                "country":    tba_event.get("country"),
-                "start_date": date.fromisoformat(tba_event["start_date"]),
-                "end_date":   date.fromisoformat(tba_event["end_date"]),
+                Event.name:       tba_event["name"],
+                Event.city:       tba_event.get("city"),
+                Event.state_prov: tba_event.get("state_prov"),
+                Event.country:    tba_event.get("country"),
+                Event.start_date: date.fromisoformat(tba_event["start_date"]),
+                Event.end_date:   date.fromisoformat(tba_event["end_date"]),
             },
         )
         .returning(Event.event_id)
@@ -66,12 +66,12 @@ def upsert_team(db: Session, tba_team: dict) -> Team:
         .on_conflict_do_update(
             index_elements=["team_number"],
             set_={
-                "team_name":   tba_team.get("nickname"),
-                "school_name": tba_team.get("school_name"),
-                "city":        tba_team.get("city"),
-                "state_prov":  tba_team.get("state_prov"),
-                "country":     tba_team.get("country"),
-                "rookie_year": tba_team.get("rookie_year"),
+                Team.team_name:   tba_team.get("nickname"),
+                Team.school_name: tba_team.get("school_name"),
+                Team.city:        tba_team.get("city"),
+                Team.state_prov:  tba_team.get("state_prov"),
+                Team.country:     tba_team.get("country"),
+                Team.rookie_year: tba_team.get("rookie_year"),
             },
         )
         .returning(Team.team_id)
@@ -126,10 +126,10 @@ def upsert_match(
         .on_conflict_do_update(
             index_elements=["tba_match_key"],
             set_={
-                "match_type":   match_type,
-                "match_number": tba_match["match_number"],
-                "played_at":    played_at,
-                "video_url":    video_url,
+                Match.match_type:   match_type,
+                Match.match_number: tba_match["match_number"],
+                Match.played_at:    played_at,
+                Match.video_url:    video_url,
             },
         )
         .returning(Match.match_id)
