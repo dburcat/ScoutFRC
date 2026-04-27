@@ -86,5 +86,5 @@ def get_event_teams(event_key: str) -> dict | list | None:
 def get_event_matches(event_key: str) -> dict | list | None:
     return _get(f"/event/{event_key}/matches")
 
-def get_events_by_year(year: int) -> list | None:
+def get_events_by_year(year: int) -> dict | list | None:
     return _get(f"/events/{year}")

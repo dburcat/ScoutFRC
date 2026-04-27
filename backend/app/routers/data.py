@@ -10,7 +10,7 @@ from app.db.session import get_db
 from app.routers.deps import get_current_user
 from app.crud import crud_scouting_observation, crud_team, crud_match
 from app.schemas.scouting_observation_schema import ScoutingObservation_schema
-from app.models import ScoutingObservation, Team, Match, Alliance
+from app.models import ScoutingObservation, Team, Match, Alliance, Event
 
 data_router = APIRouter(prefix="/data", tags=["data"])
 
@@ -48,7 +48,20 @@ def export_event_rankings_csv(
     db: Session = Depends(get_db)
 ):
     """Export event rankings as CSV"""
-    teams = db.query(Team).join(Match).filter(Match.event_id == event_id).distinct().all()
+    from sqlalchemy import select
+    
+    # Get all teams that participated in this event
+    teams_query = db.query(Team).join(
+        Team.robot_performances
+    ).join(
+        Alliance
+    ).filter(
+        Alliance.match_id.in_(
+            db.query(Match.match_id).filter(Match.event_id == event_id)
+        )
+    ).distinct()
+    
+    teams = teams_query.all()
     
     if not teams:
         raise HTTPException(status_code=404, detail="No teams found for this event")
@@ -58,25 +71,42 @@ def export_event_rankings_csv(
     writer = csv.writer(output)
     writer.writerow(["Team Number", "Team Name", "Matches Played", "Wins", "Avg Score", "Win %"])
     
-    for idx, team in enumerate(sorted(teams, key=lambda t: t.team_number), 1):
-        matches = db.query(Match).join(Alliance).filter(
+    for team in sorted(teams, key=lambda t: t.team_number):
+        # Get all matches for this team in this event
+        team_matches = db.query(Match).join(
+            Alliance
+        ).join(
+            Team.robot_performances
+        ).filter(
             Match.event_id == event_id,
-            Alliance.teams.any(team_id=team.team_id)
-        ).all()
+            Team.team_id == team.team_id
+        ).distinct().all()
         
-        if not matches:
+        if not team_matches:
             continue
         
-        wins = sum(1 for m in matches if any(a.won for a in m.alliances if any(t.team_id == team.team_id for t in a.teams)))
-        avg_score = sum((a.total_score or 0) for m in matches for a in m.alliances if any(t.team_id == team.team_id for t in a.teams)) // len(matches) if matches else 0
+        # Calculate stats
+        wins = 0
+        total_score = 0
+        
+        for match in team_matches:
+            for alliance in match.alliances:
+                for rob_perf in alliance.robot_performances:
+                    if rob_perf.team_id == team.team_id:
+                        if alliance.won:
+                            wins += 1
+                        total_score += alliance.total_score or 0
+        
+        avg_score = total_score // len(team_matches) if team_matches else 0
+        win_pct = (wins / len(team_matches) * 100) if team_matches else 0
         
         writer.writerow([
             team.team_number,
             team.team_name or "",
-            len(matches),
+            len(team_matches),
             wins,
             avg_score,
-            f"{(wins/len(matches)*100):.1f}%" if matches else "0%"
+            f"{win_pct:.1f}%"
         ])
     
     return StreamingResponse(
@@ -93,12 +123,23 @@ def export_event_data_json(
     db: Session = Depends(get_db)
 ):
     """Export full event data as JSON"""
-    event = db.query(Match).filter(Match.event_id == event_id).first()
+    from datetime import datetime
+    
+    # Check if event exists
+    event = db.query(Event).filter(Event.event_id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     
     matches = db.query(Match).filter(Match.event_id == event_id).all()
-    teams = db.query(Team).join(Match).filter(Match.event_id == event_id).distinct().all()
+    teams = db.query(Team).join(
+        Team.robot_performances
+    ).join(
+        Alliance
+    ).filter(
+        Alliance.match_id.in_(
+            db.query(Match.match_id).filter(Match.event_id == event_id)
+        )
+    ).distinct().all()
     
     export_data = {
         "event_id": event_id,
@@ -111,7 +152,7 @@ def export_event_data_json(
             for t in teams
         ],
         "matches_count": len(matches),
-        "export_timestamp": str(func.now())
+        "export_timestamp": datetime.utcnow().isoformat()
     }
     
     return export_data

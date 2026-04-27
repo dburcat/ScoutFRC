@@ -27,6 +27,21 @@ export interface Team {
   created_at: string;
 }
 
+export interface RobotPerformance {
+  perf_id: number;
+  match_id: number;
+  team_id: number;
+  alliance_id: number;
+  alliance_position: number;
+  track_id: number | null;
+  auto_score: number;
+  teleop_score: number;
+  endgame_score: number;
+  fouls_drawn: number;
+  fouls_committed: number;
+  total_score_contribution: number;
+}
+
 export interface Alliance {
   alliance_id: number;
   match_id: number;
@@ -34,6 +49,7 @@ export interface Alliance {
   total_score: number | null;
   rp_earned: number | null;
   won: boolean | null;
+  robot_performances: RobotPerformance[];
 }
 
 export interface Match {

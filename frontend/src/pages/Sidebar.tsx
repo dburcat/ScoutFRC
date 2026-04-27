@@ -89,7 +89,7 @@ export default function Sidebar() {
       setSeasonMsg(`✓ ${res.data.events_synced} events imported`);
       setShowSeasonInput(false);
       setTimeout(() => { setSeasonState('idle'); setSeasonMsg(''); }, 10000);
-    } catch {
+    } catch (err: any) {
       setSeasonState('error');
       setSeasonMsg(err?.response?.data?.detail ?? 'Bootstrap failed');
       setTimeout(() => { setSeasonState('idle'); setSeasonMsg(''); }, 6000);

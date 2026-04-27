@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReactNode } from 'react'
+import React from 'react'
 
 // Mock hook for testing patterns
 function useCounter(initialCount = 0) {
@@ -10,8 +11,6 @@ function useCounter(initialCount = 0) {
   const decrement = () => setCount(c => c - 1)
   return { count, increment, decrement }
 }
-
-import React from 'react'
 
 describe('Hook Tests', () => {
   it('initializes counter with default value', () => {
@@ -52,11 +51,10 @@ describe('Query Hook Tests', () => {
       },
     })
 
-    return ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
-    )
+    const Wrapper = ({ children }: { children: ReactNode }) => 
+      React.createElement(QueryClientProvider, { client: queryClient }, children)
+
+    return Wrapper
   }
 
   it('handles loading state in query', async () => {

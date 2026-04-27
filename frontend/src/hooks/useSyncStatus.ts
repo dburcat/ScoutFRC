@@ -23,10 +23,10 @@ export function useSyncStatus() {
       const response = await api.get<SyncStatus>('/admin/sync/status');
       return response.data;
     },
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // If scheduler is running and we have events, refetch every 3 seconds
       // Otherwise, check less frequently (30 seconds)
-      if (data?.scheduler_running && data?.events_count > 0) {
+      if (query.state.data?.scheduler_running && query.state.data?.events_count > 0) {
         return 3000; // 3 second poll while active
       }
       return 30000; // 30 second poll otherwise

@@ -56,14 +56,14 @@ export default function EventAnalyticsPage() {
   // Calculate rankings
   const teamStats = teams.map(team => {
     const teamMatches = matches.filter(m =>
-      m.alliances.some(a =>
-        a.teams.some(t => t.team_id === team.team_id)
+      m.alliances.some((a: any) =>
+        a.robot_performances?.some((rp: any) => rp.team_id === team.team_id)
       )
     );
 
     const wins = teamMatches.filter(m => {
-      const alliance = m.alliances.find(a =>
-        a.teams.some(t => t.team_id === team.team_id) && a.won
+      const alliance = m.alliances.find((a: any) =>
+        a.robot_performances?.some((rp: any) => rp.team_id === team.team_id) && a.won
       );
       return alliance !== undefined;
     }).length;
@@ -71,8 +71,8 @@ export default function EventAnalyticsPage() {
     const avgScore = teamMatches.length > 0
       ? Math.round(
           teamMatches.reduce((acc, m) => {
-            const alliance = m.alliances.find(a =>
-              a.teams.some(t => t.team_id === team.team_id)
+            const alliance = m.alliances.find((a: any) =>
+              a.robot_performances?.some((rp: any) => rp.team_id === team.team_id)
             );
             return acc + (alliance?.total_score ?? 0);
           }, 0) / teamMatches.length
