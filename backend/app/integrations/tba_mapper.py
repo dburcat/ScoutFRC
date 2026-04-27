@@ -175,8 +175,13 @@ def upsert_match(
 
     # Wipe old alliances/performances so we can re-insert cleanly on re-sync
     # Explicitly delete robot_performances first to avoid cascade delete issues
-    db.query(RobotPerformance).filter(RobotPerformance.match_id == match.match_id).delete()
-    db.query(Alliance).filter(Alliance.match_id == match.match_id).delete()
+    # Use synchronize_session='fetch' to ensure session is updated after bulk delete
+    db.query(RobotPerformance).filter(RobotPerformance.match_id == match.match_id).delete(synchronize_session='fetch')
+    db.query(Alliance).filter(Alliance.match_id == match.match_id).delete(synchronize_session='fetch')
+    
+    # Clear session cache to ensure no stale references to deleted records
+    # This is critical - without it, SQLAlchemy may still have old objects in memory
+    db.expunge_all()
     db.flush()
 
     # Build Alliance + RobotPerformance rows

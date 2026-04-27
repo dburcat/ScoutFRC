@@ -397,7 +397,35 @@ export default function EventsPage() {
     e.name.toLowerCase().includes(search.toLowerCase()) ||
     e.tba_event_key.toLowerCase().includes(search.toLowerCase()) ||
     (e.location ?? '').toLowerCase().includes(search.toLowerCase())
-  );
+  ).sort((a, b) => {
+    const now = new Date();
+    const aStart = new Date(a.start_date);
+    const aEnd = new Date(a.end_date);
+    const bStart = new Date(b.start_date);
+    const bEnd = new Date(b.end_date);
+
+    // Determine status for each event
+    const aStatus = eventStatus(a);
+    const bStatus = eventStatus(b);
+
+    // Priority: in-progress > upcoming > complete
+    const statusOrder = { 'in-progress': 0, 'upcoming': 1, 'complete': 2 };
+    if (statusOrder[aStatus] !== statusOrder[bStatus]) {
+      return statusOrder[aStatus] - statusOrder[bStatus];
+    }
+
+    // Within same status, sort by proximity to today
+    if (aStatus === 'in-progress') {
+      // In-progress: sort by how far into the event (closer to start = higher priority)
+      return aStart.getTime() - bStart.getTime();
+    } else if (aStatus === 'upcoming') {
+      // Upcoming: sort by start date (closest to today first)
+      return aStart.getTime() - bStart.getTime();
+    } else {
+      // Complete: sort by end date (most recent first)
+      return bEnd.getTime() - aEnd.getTime();
+    }
+  });
 
   const selectedEvent = events.find(e => e.event_id === selectedEventId) ?? null;
 

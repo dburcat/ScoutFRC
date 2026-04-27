@@ -9,6 +9,7 @@ import { clsx } from 'clsx';
 export default function TeamsPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'number' | 'name' | 'location' | 'rookie'>('number');
 
   const { data: teams = [], isLoading, isFetching, error } = useQuery(teamsQuery());
 
@@ -26,6 +27,30 @@ export default function TeamsPage() {
     );
   }, [teams, searchQuery]);
 
+  // Sort teams based on selected sort option
+  const sortedTeams = useMemo(() => {
+    const sorted = [...filteredTeams];
+    
+    switch (sortBy) {
+      case 'number':
+        return sorted.sort((a, b) => a.team_number - b.team_number);
+      case 'name':
+        return sorted.sort((a, b) => 
+          (a.team_name || '').localeCompare(b.team_name || '')
+        );
+      case 'location':
+        return sorted.sort((a, b) => {
+          const aLoc = `${a.state_prov || ''}${a.city || ''}`;
+          const bLoc = `${b.state_prov || ''}${b.city || ''}`;
+          return aLoc.localeCompare(bLoc);
+        });
+      case 'rookie':
+        return sorted.sort((a, b) => (b.rookie_year || 0) - (a.rookie_year || 0));
+      default:
+        return sorted;
+    }
+  }, [filteredTeams, sortBy]);
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Header */}
@@ -36,10 +61,22 @@ export default function TeamsPage() {
             {filteredTeams.length} of {teams.length} teams
           </p>
         </div>
-        <div className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', {
-          'bg-green-500': !isFetching,
-          'bg-brand animate-pulse': isFetching,
-        })} />
+        <div className="flex items-center gap-2">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="bg-app-card border border-app-border rounded px-2 py-1 text-xs text-white cursor-pointer hover:border-app-muted focus:outline-none focus:ring-1 focus:ring-brand"
+          >
+            <option value="number">Sort: Team #</option>
+            <option value="name">Sort: Name</option>
+            <option value="location">Sort: Location</option>
+            <option value="rookie">Sort: Rookie year</option>
+          </select>
+          <div className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', {
+            'bg-green-500': !isFetching,
+            'bg-brand animate-pulse': isFetching,
+          })} />
+        </div>
       </div>
 
       {/* Body */}
@@ -103,7 +140,7 @@ export default function TeamsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredTeams.map((team, idx) => (
+                  {sortedTeams.map((team, idx) => (
                     <tr
                       key={team.team_id}
                       onClick={() => navigate(`/teams/${team.team_id}`)}

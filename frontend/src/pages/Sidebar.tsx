@@ -45,6 +45,20 @@ export default function Sidebar() {
         <span className="text-sm font-medium text-white tracking-tight">ScouterFRC</span>
       </div>
 
+      {/* Sign-in Button (when not authenticated) */}
+      {!user && (
+        <div className="px-3 py-2.5 border-b border-app-border">
+          <button
+            onClick={() => navigate('/login')}
+            className="flex items-center gap-2 w-full px-3 py-2 rounded-lg bg-app-card border border-app-border hover:border-brand/40 hover:bg-brand/5 transition-all text-[13px] text-slate-400 hover:text-brand"
+          >
+            <LogIn size={14} className="flex-shrink-0" />
+            <span>Sign in</span>
+            <span className="ml-auto text-[10px] text-slate-600">to scout</span>
+          </button>
+        </div>
+      )}
+
       {/* Auto Sync Status Bar */}
       <div className={clsx('px-4 py-2 border-b border-app-border flex items-center gap-2 text-[11px]', {
         'bg-brand/10': isAutoSyncing,
@@ -160,9 +174,9 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* User / Sign-in */}
-      <div className="border-t border-app-border p-3">
-        {user ? (
+      {/* User Profile / Logout (only when authenticated) */}
+      {user && (
+        <div className="border-t border-app-border p-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-7 h-7 rounded-full bg-brand/20 flex items-center justify-center flex-shrink-0 text-[11px] font-medium text-brand">
@@ -185,17 +199,8 @@ export default function Sidebar() {
               <LogOut size={14} />
             </button>
           </div>
-        ) : (
-          <button
-            onClick={() => navigate('/login')}
-            className="flex items-center gap-2 w-full px-3 py-2 rounded-lg bg-app-card border border-app-border hover:border-brand/40 hover:bg-brand/5 transition-all text-[13px] text-slate-400 hover:text-brand"
-          >
-            <LogIn size={14} className="flex-shrink-0" />
-            <span>Sign in</span>
-            <span className="ml-auto text-[10px] text-slate-600">to scout</span>
-          </button>
-        )}
-      </div>
+        </div>
+      )}
     </aside>
   );
 }
