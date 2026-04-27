@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { ArrowLeft, X, Plus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
+import api from '@/api/client';
 
 interface Alliance {
   id: string;
@@ -11,10 +13,30 @@ interface Alliance {
 
 export default function AllianceBuilderPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [red, setRed] = useState<number[]>([]);
   const [blue, setBlue] = useState<number[]>([]);
   const [allianceName, setAllianceName] = useState('');
-  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        name: allianceName || undefined,
+        red_teams: red.join(','),
+        blue_teams: blue.join(','),
+      };
+      const response = await api.post('/user_alliances/', payload);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user-alliances'] });
+      setTimeout(() => navigate('/'), 2000);
+    },
+    onError: (err: any) => {
+      setError(err.response?.data?.detail || 'Failed to save alliance');
+    },
+  });
 
   const handleAddTeam = (color: 'red' | 'blue', teamNum: number) => {
     const arr = color === 'red' ? red : blue;
@@ -31,14 +53,12 @@ export default function AllianceBuilderPage() {
   };
 
   const handleSave = async () => {
+    setError('');
     if (red.length === 0 || blue.length === 0) {
-      alert('Please select at least one team for each alliance');
+      setError('Please select at least one team for each alliance');
       return;
     }
-    
-    // TODO: POST to /alliances endpoint
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    mutation.mutate();
   };
 
   const avgScore = (teams: number[]) => {
@@ -46,6 +66,31 @@ export default function AllianceBuilderPage() {
     // TODO: Calculate from team average scores
     return Math.round(Math.random() * 100); // Placeholder
   };
+
+  if (mutation.isPending) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-2 border-brand border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-white font-medium">Saving alliance...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (mutation.isSuccess) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
+            <span className="text-3xl">✓</span>
+          </div>
+          <p className="text-white font-medium">Alliance saved</p>
+          <p className="text-sm text-slate-600 mt-1">Redirecting...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -65,16 +110,23 @@ export default function AllianceBuilderPage() {
         </div>
         <button
           onClick={handleSave}
-          disabled={red.length === 0 || blue.length === 0}
+          disabled={red.length === 0 || blue.length === 0 || mutation.isPending}
           className="px-4 py-1.5 bg-brand text-white text-xs font-medium rounded-lg hover:bg-brand/85 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {saved ? '✓ Saved' : 'Save Alliance'}
+          {mutation.isPending ? 'Saving...' : 'Save Alliance'}
         </button>
       </div>
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-4xl mx-auto">
+          {/* Error message */}
+          {error && (
+            <div className="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm">
+              {error}
+            </div>
+          )}
+
           {/* Alliance name */}
           <div className="mb-6">
             <label className="text-[11px] font-medium text-slate-600 block mb-2">
@@ -106,7 +158,7 @@ export default function AllianceBuilderPage() {
                   })}>
                     {color} Alliance
                   </h3>
-                  <p className="text-xs text-slate-600">{color === 'red' ? red : blue}.length/3 teams</p>
+                  <p className="text-xs text-slate-600">{(color === 'red' ? red : blue).length}/3 teams</p>
                 </div>
 
                 {/* Selected teams */}

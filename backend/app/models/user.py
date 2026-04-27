@@ -28,3 +28,4 @@ class User(Base):
 	team = relationship("Team", back_populates="users")
 	scouting_observations = relationship("ScoutingObservation", back_populates="scout")
 	sync_logs = relationship("SyncLog", back_populates="trigger_user")
+	user_alliances = relationship("UserAlliance", back_populates="user")

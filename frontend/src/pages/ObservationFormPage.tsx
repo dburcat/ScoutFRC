@@ -1,10 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
+import api from '@/api/client';
+import { useAuth } from '@/context/AuthContext';
+import { eventsQuery, eventMatchesQuery } from '@/api/queries';
 
 export default function ObservationFormPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [formData, setFormData] = useState({
     eventId: '',
     matchNumber: '',
@@ -13,33 +19,63 @@ export default function ObservationFormPage() {
     score: '',
     rating: 3,
   });
+  const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Fetch events and matches for dropdowns
+  const { data: events = [] } = useQuery(eventsQuery());
+  const { data: matches = [] } = useQuery(
+    eventMatchesQuery(formData.eventId ? parseInt(formData.eventId) : null)
+  );
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (!formData.eventId || !formData.matchNumber || !formData.teamNumber) {
+        throw new Error('Missing required fields');
+      }
+
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Find the match ID from the match number
+      const match = matches.find((m: any) => m.match_number === parseInt(formData.matchNumber));
+      if (!match) {
+        throw new Error('Match not found');
+      }
+
+      const payload = {
+        team_id: parseInt(formData.teamNumber),
+        match_id: match.match_id,
+        scout_id: user.user_id,
+        notes: formData.notes || null,
+        rating: formData.rating,
+        actions: formData.score ? { score: parseInt(formData.score) } : null,
+      };
+
+      const response = await api.post('/scouting_observations/', payload);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scouting-observations'] });
+      setSubmitted(true);
+      setTimeout(() => navigate('/'), 2000);
+    },
+    onError: (err: any) => {
+      setError(err.response?.data?.detail || err.message || 'Failed to submit observation');
+    },
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    setError('');
+
     if (!formData.eventId || !formData.matchNumber || !formData.teamNumber) {
-      alert('Please fill in all required fields');
+      setError('Please fill in all required fields');
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      // TODO: POST to /performances endpoint
-      // const res = await api.post('/performances', formData);
-      
-      setTimeout(() => {
-        setSubmitted(true);
-        setIsSubmitting(false);
-        setTimeout(() => {
-          navigate('/');
-        }, 2000);
-      }, 500);
-    } catch (err) {
-      alert('Failed to submit observation');
-      setIsSubmitting(false);
-    }
+    mutation.mutate();
   };
 
   if (submitted) {
@@ -75,6 +111,13 @@ export default function ObservationFormPage() {
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-6">
         <form onSubmit={handleSubmit} className="max-w-2xl mx-auto space-y-5">
+          {/* Error message */}
+          {error && (
+            <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm">
+              {error}
+            </div>
+          )}
+
           {/* Event */}
           <div>
             <label className="text-[11px] font-medium text-slate-600 block mb-2">
@@ -82,12 +125,18 @@ export default function ObservationFormPage() {
             </label>
             <select
               value={formData.eventId}
-              onChange={e => setFormData({ ...formData, eventId: e.target.value })}
+              onChange={e => {
+                setFormData({ ...formData, eventId: e.target.value, matchNumber: '' });
+              }}
               className="w-full px-3 py-2 bg-app-card border border-app-border rounded-lg text-white text-sm"
               required
             >
               <option value="">Select an event...</option>
-              {/* TODO: Populate from events API */}
+              {events.map((evt: any) => (
+                <option key={evt.event_id} value={evt.event_id}>
+                  {evt.event_name} ({evt.year})
+                </option>
+              ))}
             </select>
           </div>
 
@@ -96,14 +145,20 @@ export default function ObservationFormPage() {
             <label className="text-[11px] font-medium text-slate-600 block mb-2">
               Match number<span className="text-red-400">*</span>
             </label>
-            <input
-              type="number"
+            <select
               value={formData.matchNumber}
               onChange={e => setFormData({ ...formData, matchNumber: e.target.value })}
-              placeholder="e.g. 42"
-              className="w-full px-3 py-2 bg-app-card border border-app-border rounded-lg text-white text-sm placeholder:text-slate-600"
+              className="w-full px-3 py-2 bg-app-card border border-app-border rounded-lg text-white text-sm"
               required
-            />
+              disabled={!formData.eventId}
+            >
+              <option value="">Select a match...</option>
+              {matches.map((m: any) => (
+                <option key={m.match_id} value={m.match_number}>
+                  Match {m.match_number}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Team */}
@@ -184,11 +239,11 @@ export default function ObservationFormPage() {
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={mutation.isPending}
               className="flex-1 px-4 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand/85 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               <Send size={14} />
-              {isSubmitting ? 'Submitting...' : 'Submit'}
+              {mutation.isPending ? 'Submitting...' : 'Submit'}
             </button>
           </div>
         </form>

@@ -1,6 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trophy, TrendingUp } from 'lucide-react';
+import {
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts';
 import { type Event, type Team, type Match } from '@/types/models';
 import { eventQuery, eventTeamsQuery, eventMatchesQuery } from '@/api/queries';
 import { clsx } from 'clsx';
@@ -84,6 +88,37 @@ export default function EventAnalyticsPage() {
   });
 
   const sorted = [...teamStats].sort((a, b) => b.avgScore - a.avgScore);
+  const top10 = sorted.slice(0, 10);
+
+  // Prepare chart data
+  const barChartData = top10.map(stat => ({
+    name: `${stat.team.team_number}`,
+    score: stat.avgScore,
+  }));
+
+  const redWins = matches.filter(m =>
+    m.alliances.find(a => a.color === 'red' && a.won)
+  ).length;
+  const blueWins = matches.filter(m =>
+    m.alliances.find(a => a.color === 'blue' && a.won)
+  ).length;
+
+  const pieChartData = [
+    { name: 'Red Wins', value: redWins },
+    { name: 'Blue Wins', value: blueWins },
+  ];
+
+  const lineChartData = matches
+    .sort((a, b) => (a.match_number ?? 0) - (b.match_number ?? 0))
+    .map((match, idx) => {
+      const redScore = match.alliances.find(a => a.color === 'red')?.total_score ?? 0;
+      const blueScore = match.alliances.find(a => a.color === 'blue')?.total_score ?? 0;
+      return {
+        match: match.match_number || idx + 1,
+        red: redScore,
+        blue: blueScore,
+      };
+    });
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -105,7 +140,7 @@ export default function EventAnalyticsPage() {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="max-w-6xl mx-auto space-y-6">
           {/* Stats cards */}
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-app-card border border-app-border rounded-lg p-4">
@@ -133,12 +168,107 @@ export default function EventAnalyticsPage() {
             </div>
           </div>
 
+          {/* Charts Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Bar Chart - Top Teams */}
+            <div className="bg-app-card border border-app-border rounded-lg p-6">
+              <h3 className="text-base font-medium text-white mb-4">Top 10 Teams by Avg Score</h3>
+              {barChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={barChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
+                    <YAxis stroke="#94a3b8" fontSize={12} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#1e293b',
+                        border: '1px solid #475569',
+                        borderRadius: '0.5rem',
+                        color: '#fff',
+                      }}
+                    />
+                    <Bar dataKey="score" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-slate-600">
+                  No data available
+                </div>
+              )}
+            </div>
+
+            {/* Pie Chart - Red vs Blue */}
+            <div className="bg-app-card border border-app-border rounded-lg p-6">
+              <h3 className="text-base font-medium text-white mb-4">Win Distribution</h3>
+              {pieChartData.some(d => d.value > 0) ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={pieChartData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, value }) => `${name}: ${value}`}
+                      outerRadius={100}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      <Cell fill="#ef4444" />
+                      <Cell fill="#3b82f6" />
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#1e293b',
+                        border: '1px solid #475569',
+                        borderRadius: '0.5rem',
+                        color: '#fff',
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-slate-600">
+                  No data available
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Line Chart - Match Progression */}
+          <div className="bg-app-card border border-app-border rounded-lg p-6">
+            <h3 className="text-base font-medium text-white mb-4">Match Scores Over Time</h3>
+            {lineChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={lineChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="match" stroke="#94a3b8" fontSize={12} />
+                  <YAxis stroke="#94a3b8" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#1e293b',
+                      border: '1px solid #475569',
+                      borderRadius: '0.5rem',
+                      color: '#fff',
+                    }}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="red" stroke="#ef4444" dot={false} strokeWidth={2} />
+                  <Line type="monotone" dataKey="blue" stroke="#3b82f6" dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-slate-600">
+                No data available
+              </div>
+            )}
+          </div>
+
           {/* Rankings table */}
           <div className="bg-app-card border border-app-border rounded-lg overflow-hidden">
             <div className="px-6 py-4 border-b border-app-border">
               <h3 className="text-base font-medium text-white flex items-center gap-2">
                 <Trophy size={18} className="text-amber-400" />
-                Team Rankings
+                Full Rankings
               </h3>
             </div>
 
@@ -178,7 +308,7 @@ export default function EventAnalyticsPage() {
           {/* Info */}
           <div className="p-4 bg-app-card border border-app-border rounded-lg">
             <p className="text-[11px] text-slate-600">
-              📊 <span className="font-medium">Tier 8:</span> Rankings based on average alliance score. Advanced analytics (OPR/EPA) coming in Phase 2.
+              📊 <span className="font-medium">Tier 8:</span> Real-time analytics with bar, pie, and line charts. Advanced metrics (OPR/EPA) coming in Phase 2.
             </p>
           </div>
         </div>

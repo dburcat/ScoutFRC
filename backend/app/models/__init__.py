@@ -7,6 +7,7 @@ from .scouting_observation import ScoutingObservation
 from .sync_log import SyncLog
 from .team import Team
 from .user import User
+from .user_alliance import UserAlliance
 
 __all__ = [
 	"Alliance",
@@ -18,4 +19,5 @@ __all__ = [
 	"SyncLog",
 	"Team",
 	"User",
+	"UserAlliance",
 ]

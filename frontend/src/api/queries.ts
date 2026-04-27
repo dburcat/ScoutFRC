@@ -68,3 +68,19 @@ export const teamMatchesQuery = (teamId: number | null) => ({
   staleTime: 20_000,
   enabled: !!teamId,
 });
+
+// ── User Alliances ─────────────────────────────────────────────────────────
+export const userAlliancesQuery = () => ({
+  queryKey: ['user-alliances'] as const,
+  queryFn:  () => api.get('/user_alliances/my-alliances').then(r => r.data),
+  refetchInterval: 60_000,
+  staleTime: 45_000,
+});
+
+// ── Scouting Observations ──────────────────────────────────────────────────
+export const scoutingObservationsQuery = () => ({
+  queryKey: ['scouting-observations'] as const,
+  queryFn:  () => api.get('/scouting_observations/').then(r => r.data),
+  refetchInterval: 60_000,
+  staleTime: 45_000,
+});

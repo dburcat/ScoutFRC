@@ -3,6 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Trophy, Users, TrendingUp, Calendar, Target,
 } from 'lucide-react';
+import {
+  BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts';
 import { type Team, type Match } from '@/types/models';
 import { teamMatchesQuery } from '@/api/queries';
 import { clsx } from 'clsx';
@@ -78,6 +82,25 @@ export default function TeamProfilePage() {
     }, 0) / total)
     : 0;
 
+  // Prepare chart data
+  const barChartData = matches.map((m, idx) => {
+    const score = m.alliances.find(a => a.won !== null)?.total_score ?? 0;
+    return {
+      match: m.match_number || idx + 1,
+      score,
+    };
+  });
+
+  const lineChartData = matches
+    .sort((a, b) => (a.match_number ?? 0) - (b.match_number ?? 0))
+    .map((m, idx) => {
+      const score = m.alliances.find(a => a.won !== null)?.total_score ?? 0;
+      return {
+        match: m.match_number || idx + 1,
+        score,
+      };
+    });
+
   if (!teamIdNum) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -113,6 +136,59 @@ export default function TeamProfilePage() {
           <StatBadge label="Avg Score" value={avgScore} icon={<TrendingUp size={16} />} />
           <StatBadge label="Win Rate" value={total > 0 ? `${Math.round((wins / total) * 100)}%` : '—'} icon={<Target size={16} />} />
         </div>
+
+        {/* Charts */}
+        {matches.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Bar Chart - Score Distribution */}
+            <div className="bg-app-card border border-app-border rounded-lg p-6">
+              <h3 className="text-base font-medium text-white mb-4">Score Distribution</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={barChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="match" stroke="#94a3b8" fontSize={12} />
+                  <YAxis stroke="#94a3b8" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#1e293b',
+                      border: '1px solid #475569',
+                      borderRadius: '0.5rem',
+                      color: '#fff',
+                    }}
+                  />
+                  <Bar dataKey="score" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Line Chart - Score Trend */}
+            <div className="bg-app-card border border-app-border rounded-lg p-6">
+              <h3 className="text-base font-medium text-white mb-4">Score Trend</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={lineChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="match" stroke="#94a3b8" fontSize={12} />
+                  <YAxis stroke="#94a3b8" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#1e293b',
+                      border: '1px solid #475569',
+                      borderRadius: '0.5rem',
+                      color: '#fff',
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="score"
+                    stroke="#10b981"
+                    dot={false}
+                    strokeWidth={2}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
 
         {/* Matches table */}
         <div>
