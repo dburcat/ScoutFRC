@@ -1,8 +1,12 @@
 # backend/app/integrations/tba_mapper.py
+import logging
 from datetime import date, datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import text
 from app.models import Event, Team, Match, Alliance, RobotPerformance
+
+logger = logging.getLogger(__name__)
 
 MATCH_TYPE_MAP = {
     "qm": "qualification",
@@ -11,78 +15,111 @@ MATCH_TYPE_MAP = {
     "ef": "semifinal",   # Einstein elim rounds, map to semifinal
 }
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def truncate(value: str | None, max_length: int) -> str | None:
+    """Truncate string to max_length, return None if input is None."""
+    if value is None:
+        return None
+    return value[:max_length] if len(value) > max_length else value
+
+
+def extract_match_number(match_number_str: str | int) -> int:
+    """Extract numeric part from match number (e.g., '229B' -> 229)."""
+    try:
+        if isinstance(match_number_str, int):
+            return match_number_str
+        
+        # Remove non-digit characters from the end (e.g., 'B', 'A', etc.)
+        numeric_part = ""
+        for char in str(match_number_str):
+            if char.isdigit():
+                numeric_part += char
+            else:
+                # Stop at first non-digit and use what we have
+                break
+        
+        result = int(numeric_part) if numeric_part else 0
+        if result == 0:
+            logger.warning("extract_match_number(%s) resulted in 0, original: %s", match_number_str, match_number_str)
+        return result
+    except Exception as e:
+        logger.error("extract_match_number failed for %s: %s", match_number_str, e)
+        return 0
+
 # ── Event ────────────────────────────────────────────────────────────────────
 
 def upsert_event(db: Session, tba_event: dict) -> Event:
-    stmt = (
-        pg_insert(Event)
-        .values(
+    # Try to get existing event
+    event = db.query(Event).filter(Event.tba_event_key == tba_event["key"]).first()
+    
+    # Truncate fields to fit column constraints (schema doesn't specify max lengths, use reasonable defaults)
+    name = truncate(tba_event.get("name"), 255)
+    city = truncate(tba_event.get("city"), 100)
+    state_prov = truncate(tba_event.get("state_prov"), 60)
+    country = truncate(tba_event.get("country"), 60)
+    
+    if event:
+        # Update existing
+        event.name = name
+        event.city = city
+        event.state_prov = state_prov
+        event.country = country
+        event.start_date = date.fromisoformat(tba_event["start_date"])
+        event.end_date = date.fromisoformat(tba_event["end_date"])
+        db.flush()
+    else:
+        # Create new
+        event = Event(
             tba_event_key=tba_event["key"],
-            name=tba_event["name"],
-            city=tba_event.get("city"),
-            state_prov=tba_event.get("state_prov"),
-            country=tba_event.get("country"),
+            name=name,
+            city=city,
+            state_prov=state_prov,
+            country=country,
             start_date=date.fromisoformat(tba_event["start_date"]),
             end_date=date.fromisoformat(tba_event["end_date"]),
             season_year=tba_event["year"],
         )
-        .on_conflict_do_update(
-            index_elements=["tba_event_key"],
-            set_={
-                Event.name:       tba_event["name"],
-                Event.city:       tba_event.get("city"),
-                Event.state_prov: tba_event.get("state_prov"),
-                Event.country:    tba_event.get("country"),
-                Event.start_date: date.fromisoformat(tba_event["start_date"]),
-                Event.end_date:   date.fromisoformat(tba_event["end_date"]),
-            },
-        )
-        .returning(Event.event_id)
-    )
-    row = db.execute(stmt).fetchone()
-    db.flush()
-    if row is None:
-        raise ValueError("Failed to upsert event")
-    event = db.get(Event, row[0])
-    if event is None:
-        raise ValueError("Failed to retrieve event after upsert")
+        db.add(event)
+        db.flush()
     return event
 
 
 # ── Teams ────────────────────────────────────────────────────────────────────
 
 def upsert_team(db: Session, tba_team: dict) -> Team:
-    stmt = (
-        pg_insert(Team)
-        .values(
+    # Try to get existing team
+    team = db.query(Team).filter(Team.team_number == tba_team["team_number"]).first()
+    
+    # Truncate fields to fit column constraints
+    team_name = truncate(tba_team.get("nickname"), 255)
+    school_name = truncate(tba_team.get("school_name"), 200)
+    city = truncate(tba_team.get("city"), 100)
+    state_prov = truncate(tba_team.get("state_prov"), 60)
+    country = truncate(tba_team.get("country"), 60)
+    
+    if team:
+        # Update existing
+        team.team_name = team_name
+        team.school_name = school_name
+        team.city = city
+        team.state_prov = state_prov
+        team.country = country
+        team.rookie_year = tba_team.get("rookie_year")
+        db.flush()
+    else:
+        # Create new
+        team = Team(
             team_number=tba_team["team_number"],
-            team_name=tba_team.get("nickname"),
-            school_name=tba_team.get("school_name"),
-            city=tba_team.get("city"),
-            state_prov=tba_team.get("state_prov"),
-            country=tba_team.get("country"),
+            team_name=team_name,
+            school_name=school_name,
+            city=city,
+            state_prov=state_prov,
+            country=country,
             rookie_year=tba_team.get("rookie_year"),
         )
-        .on_conflict_do_update(
-            index_elements=["team_number"],
-            set_={
-                Team.team_name:   tba_team.get("nickname"),
-                Team.school_name: tba_team.get("school_name"),
-                Team.city:        tba_team.get("city"),
-                Team.state_prov:  tba_team.get("state_prov"),
-                Team.country:     tba_team.get("country"),
-                Team.rookie_year: tba_team.get("rookie_year"),
-            },
-        )
-        .returning(Team.team_id)
-    )
-    row = db.execute(stmt).fetchone()
-    db.flush()
-    if row is None:
-        raise ValueError("Failed to upsert team")
-    team = db.get(Team, row[0])
-    if team is None:
-        raise ValueError("Failed to retrieve team after upsert")
+        db.add(team)
+        db.flush()
     return team
 
 
@@ -112,37 +149,33 @@ def upsert_match(
             video_url = v.get("key")
 
     # Upsert the Match row
-    stmt = (
-        pg_insert(Match)
-        .values(
+    match = db.query(Match).filter(Match.tba_match_key == tba_match["key"]).first()
+    match_number = extract_match_number(tba_match["match_number"])
+    
+    if match:
+        # Update existing
+        match.match_type = match_type
+        match.match_number = match_number
+        match.played_at = played_at
+        match.video_url = video_url
+        db.flush()
+    else:
+        # Create new
+        match = Match(
             event_id=event.event_id,
             tba_match_key=tba_match["key"],
             match_type=match_type,
-            match_number=tba_match["match_number"],
+            match_number=match_number,
             played_at=played_at,
             video_url=video_url,
             processing_status="pending",
         )
-        .on_conflict_do_update(
-            index_elements=["tba_match_key"],
-            set_={
-                Match.match_type:   match_type,
-                Match.match_number: tba_match["match_number"],
-                Match.played_at:    played_at,
-                Match.video_url:    video_url,
-            },
-        )
-        .returning(Match.match_id)
-    )
-    row = db.execute(stmt).fetchone()
-    db.flush()
-    if row is None:
-        raise ValueError("Failed to upsert match")
-    match = db.get(Match, row[0])
-    if match is None:
-        raise ValueError("Failed to retrieve match after upsert")
+        db.add(match)
+        db.flush()
 
     # Wipe old alliances/performances so we can re-insert cleanly on re-sync
+    # Explicitly delete robot_performances first to avoid cascade delete issues
+    db.query(RobotPerformance).filter(RobotPerformance.match_id == match.match_id).delete()
     db.query(Alliance).filter(Alliance.match_id == match.match_id).delete()
     db.flush()
 
@@ -166,11 +199,31 @@ def upsert_match(
         db.flush()  # need alliance_id for RobotPerformance FK
 
         team_keys = alliance_data.get("team_keys", [])  # ["frc254", "frc971", "frc1678"]
+        seen_teams = set()  # Track teams we've already added to this match
         for position, team_key in enumerate(team_keys[:3], start=1):
-            team_number = int(team_key.replace("frc", ""))
+            # Extract numeric part from team_key (e.g., "frc254", "frc254B" -> 254)
+            try:
+                team_str = team_key.replace("frc", "")
+                team_number = extract_match_number(team_str)  # Use existing helper for consistency
+                if team_number == 0:
+                    logger.warning("team_key %s resulted in team_number 0, skipping", team_key)
+                    continue
+            except Exception as e:
+                logger.error("Failed to parse team_key %s: %s", team_key, e)
+                continue
+            
             team_id = team_number_to_id.get(team_number)
             if team_id is None:
                 continue  # team wasn't in event teams list (shouldn't happen)
+            
+            # Skip if we've already added this team to this match (TBA data sometimes has duplicates)
+            if team_id in seen_teams:
+                logger.warning(
+                    "Skipping duplicate team %d (team_key %s) in match %s, color %s",
+                    team_number, team_key, match.tba_match_key, color
+                )
+                continue
+            seen_teams.add(team_id)
 
             perf = RobotPerformance(
                 match_id=match.match_id,

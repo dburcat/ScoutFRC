@@ -23,7 +23,7 @@ event_router = APIRouter(prefix="/events", tags=["events"])
 def get_events(
     year: Optional[int] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=10000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db)
 ):
         events = crud_event.get_events(db, year=year, skip=skip, limit=limit)
@@ -40,7 +40,7 @@ def get_event(event_id: int, db: Session = Depends(get_db)):
 def get_event_matches(
     event_id: int,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=10000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db)
 ):
         matches = crud_match.get_matches_by_event(event_id, db, skip=skip, limit=limit)
@@ -50,7 +50,7 @@ def get_event_matches(
 def get_event_teams(
     event_id: int,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=10000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db)
 ):
         teams = crud_team.get_teams_by_event(event_id, db, skip=skip, limit=limit)

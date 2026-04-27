@@ -9,7 +9,7 @@ scouting_observation_router = APIRouter(prefix="/scouting_observations", tags=["
 @scouting_observation_router.get("/", response_model=list[ScoutingObservation_schema])
 def get_scouting_observations(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=10000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db)
 ):
         scouting_observations = crud_scouting_observation.get_scouting_observations(db, skip=skip, limit=limit)

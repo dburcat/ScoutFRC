@@ -169,8 +169,14 @@ def start_scheduler() -> None:
     if _scheduler.running:
         return
 
-    # Run full startup sync immediately (once, on startup)
-    _job_startup_full_sync()
+    # Schedule startup sync to run immediately but asynchronously (doesn't block startup)
+    _scheduler.add_job(
+        _job_startup_full_sync,
+        trigger="date",  # Run once at a specific moment
+        run_date=None,   # Default to "right now"
+        id="startup_sync",
+        name="Startup full sync",
+    )
 
     # Active-event sync — starts at 2-min cadence, dynamic reschedule adjusts it
     _scheduler.add_job(

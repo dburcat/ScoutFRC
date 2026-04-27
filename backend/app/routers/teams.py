@@ -12,7 +12,7 @@ team_router = APIRouter(prefix="/teams", tags=["teams"])
 def get_teams(
     team_number: Optional[int] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=10000),
+    limit: int = Query(100, ge=1, le=100000),
     db: Session = Depends(get_db)
 ):
     teams = crud_team.get_teams(db, team_number=team_number, skip=skip, limit=limit)

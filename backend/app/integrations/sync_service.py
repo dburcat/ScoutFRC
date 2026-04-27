@@ -29,55 +29,73 @@ def sync_event(
     Raises ValueError (404) or RuntimeError (TBA error) on failure — caller
     is responsible for catching and writing the failure sync log.
     """
-    tba_event   = tba_client.get_event(event_key)
-    tba_teams   = tba_client.get_event_teams(event_key)
-    tba_matches = tba_client.get_event_matches(event_key)
+    try:
+        tba_event   = tba_client.get_event(event_key)
+        tba_teams   = tba_client.get_event_teams(event_key)
+        tba_matches = tba_client.get_event_matches(event_key)
 
-    # 304 Not Modified — nothing changed, nothing to do
-    if tba_event is None or tba_teams is None or tba_matches is None:
-        logger.debug("sync_event(%s): 304 Not Modified, skipping", event_key)
-        return {"event_key": event_key, "teams_synced": 0, "matches_synced": 0, "skipped": True}
+        # 304 Not Modified — nothing changed, nothing to do
+        if tba_event is None or tba_teams is None or tba_matches is None:
+            logger.debug("sync_event(%s): 304 Not Modified, skipping", event_key)
+            return {"event_key": event_key, "teams_synced": 0, "matches_synced": 0, "skipped": True}
 
-    if not isinstance(tba_event, dict):
-        raise RuntimeError(f"Unexpected TBA event shape for {event_key}")
+        if not isinstance(tba_event, dict):
+            raise RuntimeError(f"Unexpected TBA event shape for {event_key}")
 
-    event = tba_mapper.upsert_event(db, tba_event)
+        event = tba_mapper.upsert_event(db, tba_event)
 
-    team_number_to_id: dict[int, int] = {}
-    for tba_team in tba_teams:
-        team = tba_mapper.upsert_team(db, tba_team)
-        team_number_to_id[tba_team["team_number"]] = team.team_id
+        team_number_to_id: dict[int, int] = {}
+        for tba_team in tba_teams:
+            team = tba_mapper.upsert_team(db, tba_team)
+            team_number_to_id[tba_team["team_number"]] = team.team_id
 
-    synced_matches = 0
-    for tba_match in tba_matches:
-        tba_mapper.upsert_match(db, tba_match, event, team_number_to_id)
-        synced_matches += 1
+        synced_matches = 0
+        for tba_match in tba_matches:
+            try:
+                tba_mapper.upsert_match(db, tba_match, event, team_number_to_id)
+                synced_matches += 1
+            except Exception as match_err:
+                logger.error(
+                    "Failed to upsert match in %s: %s | Match data: %s",
+                    event_key,
+                    match_err,
+                    {
+                        "match_id": tba_match.get("id"),
+                        "match_number": tba_match.get("match_number"),
+                        "comp_level": tba_match.get("comp_level"),
+                    },
+                )
+                raise
 
-    crud_sync_log.create_sync_log(
-        db,
-        sync_type="event",
-        resource_id=event_key,
-        status="success",
-        triggered_by=triggered_by,
-        records_created=len(tba_teams) + synced_matches,
-        new_values={
+        crud_sync_log.create_sync_log(
+            db,
+            sync_type="event",
+            resource_id=event_key,
+            status="success",
+            triggered_by=triggered_by,
+            records_created=len(tba_teams) + synced_matches,
+            new_values={
+                "event_key": event_key,
+                "teams_synced": len(tba_teams),
+                "matches_synced": synced_matches,
+            },
+        )
+        db.commit()
+
+        logger.info(
+            "sync_event(%s): %d teams, %d matches",
+            event_key, len(tba_teams), synced_matches,
+        )
+        return {
             "event_key": event_key,
             "teams_synced": len(tba_teams),
             "matches_synced": synced_matches,
-        },
-    )
-    db.commit()
-
-    logger.info(
-        "sync_event(%s): %d teams, %d matches",
-        event_key, len(tba_teams), synced_matches,
-    )
-    return {
-        "event_key": event_key,
-        "teams_synced": len(tba_teams),
-        "matches_synced": synced_matches,
-        "skipped": False,
-    }
+            "skipped": False,
+        }
+    except Exception as e:
+        # Rollback the transaction to reset session state for subsequent syncs
+        db.rollback()
+        raise
 
 
 def sync_all_active_events(db: Session) -> list[dict]:
@@ -143,27 +161,32 @@ def sync_all_teams(db: Session) -> dict:
     
     Returns: { teams_synced: count, pages: pages_fetched }
     """
-    logger.info("Syncing all teams from TBA (paginated)")
-    page = 0
-    total_teams = 0
-    
-    while True:
-        tba_teams = tba_client.get_teams_page(page)
+    try:
+        logger.info("Syncing all teams from TBA (paginated)")
+        page = 0
+        total_teams = 0
         
-        if tba_teams is None or len(tba_teams) == 0:
-            break
+        while True:
+            tba_teams = tba_client.get_teams_page(page)
+            
+            if tba_teams is None or len(tba_teams) == 0:
+                break
+            
+            for tba_team in tba_teams:
+                if isinstance(tba_team, dict):
+                    tba_mapper.upsert_team(db, tba_team)
+                    total_teams += 1
+            
+            page += 1
+            logger.debug("Synced teams page %d (%d teams so far)", page, total_teams)
         
-        for tba_team in tba_teams:
-            if isinstance(tba_team, dict):
-                tba_mapper.upsert_team(db, tba_team)
-                total_teams += 1
-        
-        page += 1
-        logger.debug("Synced teams page %d (%d teams so far)", page, total_teams)
-    
-    db.commit()
-    logger.info("Synced %d total teams across %d pages", total_teams, page)
-    return {"teams_synced": total_teams, "pages": page}
+        db.commit()
+        logger.info("Synced %d total teams across %d pages", total_teams, page)
+        return {"teams_synced": total_teams, "pages": page}
+    except Exception as e:
+        db.rollback()
+        logger.error("Sync all teams failed: %s", e)
+        raise
 
 
 def sync_events_for_years(db: Session, from_year: int, to_year: int) -> dict:
@@ -177,29 +200,33 @@ def sync_events_for_years(db: Session, from_year: int, to_year: int) -> dict:
     total_events = 0
     
     for year in range(from_year, to_year + 1):
-        logger.debug("Bootstrapping events for %d", year)
-        events_data = tba_client.get_events_by_year(year)
-        
-        if events_data is None or not isinstance(events_data, list):
-            logger.warning("No events found for year %d", year)
-            continue
-        
-        # First pass: upsert all event metadata
-        event_keys = []
-        for tba_event in events_data:
-            if isinstance(tba_event, dict):
-                tba_mapper.upsert_event(db, tba_event)
-                event_keys.append(tba_event.get("key"))
-                total_events += 1
-        
-        db.commit()
-        
-        # Second pass: sync teams and matches for each event
-        for event_key in event_keys:
-            try:
-                sync_event(db, event_key, triggered_by=None)
-            except Exception as exc:
-                logger.warning("Sync failed for %s: %s", event_key, exc)
+        try:
+            logger.debug("Bootstrapping events for %d", year)
+            events_data = tba_client.get_events_by_year(year)
+            
+            if events_data is None or not isinstance(events_data, list):
+                logger.warning("No events found for year %d", year)
+                continue
+            
+            # First pass: upsert all event metadata
+            event_keys = []
+            for tba_event in events_data:
+                if isinstance(tba_event, dict):
+                    tba_mapper.upsert_event(db, tba_event)
+                    event_keys.append(tba_event.get("key"))
+                    total_events += 1
+            
+            db.commit()
+            
+            # Second pass: sync teams and matches for each event
+            for event_key in event_keys:
+                try:
+                    sync_event(db, event_key, triggered_by=None)
+                except Exception as exc:
+                    logger.warning("Sync failed for %s: %s", event_key, exc)
+        except Exception as e:
+            db.rollback()
+            logger.error("Sync for year %d failed: %s", year, e)
     
     logger.info("Synced %d events for years %d-%d", total_events, from_year, to_year)
     return {"years": [from_year, to_year], "events_synced": total_events}

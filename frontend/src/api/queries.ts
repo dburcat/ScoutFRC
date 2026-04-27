@@ -23,7 +23,7 @@ const INTERVAL = {
 // ── Events ─────────────────────────────────────────────────────────────────
 export const eventsQuery = (year = CURRENT_YEAR) => ({
   queryKey: ['events', year] as const,
-  queryFn:  () => api.get<Event[]>(`/events/?year=${year}`).then(r => r.data),
+  queryFn:  () => api.get<Event[]>(`/events/?year=${year}&limit=100000`).then(r => r.data),
   refetchInterval: INTERVAL.events,
   staleTime: 20_000,
 });
@@ -39,7 +39,7 @@ export const eventQuery = (eventId: number) => ({
 // ── Teams ──────────────────────────────────────────────────────────────────
 export const teamsQuery = () => ({
   queryKey: ['teams'] as const,
-  queryFn:  () => api.get<Team[]>('/teams/?skip=0&limit=1000').then(r => r.data),
+  queryFn:  () => api.get<Team[]>('/teams/?skip=0&limit=100000').then(r => r.data),
   refetchInterval: INTERVAL.teams,
   staleTime: 45_000,
 });
@@ -54,7 +54,7 @@ export const teamQuery = (teamId: number | null) => ({
 
 export const eventTeamsQuery = (eventId: number | null) => ({
   queryKey: ['event-teams', eventId] as const,
-  queryFn:  () => api.get<Team[]>(`/events/${eventId}/teams`).then(r => r.data),
+  queryFn:  () => api.get<Team[]>(`/events/${eventId}/teams?limit=100000`).then(r => r.data),
   refetchInterval: INTERVAL.teams,
   staleTime: 45_000,
   enabled: !!eventId,
@@ -63,7 +63,7 @@ export const eventTeamsQuery = (eventId: number | null) => ({
 // ── Matches ────────────────────────────────────────────────────────────────
 export const eventMatchesQuery = (eventId: number | null) => ({
   queryKey: ['event-matches', eventId] as const,
-  queryFn:  () => api.get<Match[]>(`/events/${eventId}/matches`).then(r => r.data),
+  queryFn:  () => api.get<Match[]>(`/events/${eventId}/matches?limit=100000`).then(r => r.data),
   refetchInterval: INTERVAL.matches,
   staleTime: 20_000,
   enabled: !!eventId,
@@ -71,7 +71,7 @@ export const eventMatchesQuery = (eventId: number | null) => ({
 
 export const teamMatchesQuery = (teamId: number | null) => ({
   queryKey: ['team-matches', teamId] as const,
-  queryFn:  () => api.get<Match[]>(`/teams/${teamId}/matches`).then(r => r.data),
+  queryFn:  () => api.get<Match[]>(`/teams/${teamId}/matches?limit=100000`).then(r => r.data),
   refetchInterval: INTERVAL.matches,
   staleTime: 20_000,
   enabled: !!teamId,

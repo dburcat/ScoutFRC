@@ -379,12 +379,19 @@ function EventDetailPanel({ event }: { event: Event }) {
 export default function EventsPage() {
   const [search, setSearch] = useState('');
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
+  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
+
+  // Generate years from 2009 to CURRENT_YEAR
+  const years = Array.from(
+    { length: CURRENT_YEAR - 2009 + 1 },
+    (_, i) => CURRENT_YEAR - i
+  );
 
   const {
     data: events = [],
     isLoading,
     isFetching,
-  } = useQuery(eventsQuery(CURRENT_YEAR));
+  } = useQuery(eventsQuery(selectedYear));
 
   const filtered = events.filter(e =>
     e.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -400,9 +407,25 @@ export default function EventsPage() {
       <div className="flex items-center justify-between px-6 py-3.5 border-b border-app-border flex-shrink-0">
         <div>
           <p className="text-[15px] font-medium text-white">Events</p>
-          <p className="text-[11px] text-slate-600 mt-0.5">
-            {CURRENT_YEAR} season · {events.length} events
-          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <select
+              value={selectedYear}
+              onChange={(e) => {
+                setSelectedYear(Number(e.target.value));
+                setSelectedEventId(null); // Clear selection when year changes
+              }}
+              className="bg-app-card border border-app-border rounded px-2 py-1 text-xs text-white cursor-pointer hover:border-app-muted focus:outline-none focus:ring-1 focus:ring-brand"
+            >
+              {years.map(year => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+            <span className="text-[11px] text-slate-600">
+              · {events.length} events
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <LiveIndicator isFetching={isFetching} />
