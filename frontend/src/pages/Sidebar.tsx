@@ -13,8 +13,10 @@ import {
   LogIn,
   ChevronRight,
   Lock,
+  Database,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useSyncStatus } from '@/hooks/useSyncStatus';
 import api from '@/api/client';
 import { clsx } from 'clsx';
 
@@ -118,6 +120,13 @@ export default function Sidebar() {
     }
   };
 
+  // Auto sync status — polls backend to show if sync is happening
+  const syncStatus = useSyncStatus();
+  const isAutoSyncing = syncStatus.data?.scheduler_running;
+  const hasData = (syncStatus.data?.events_count ?? 0) > 0;
+  const lastSync = syncStatus.data?.last_sync ? new Date(syncStatus.data.last_sync) : null;
+  const lastSyncTime = lastSync ? lastSync.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'Never';
+
   return (
     <aside className="flex flex-col w-52 min-w-[208px] bg-app-sidebar border-r border-app-border">
       {/* Logo */}
@@ -129,6 +138,27 @@ export default function Sidebar() {
           </svg>
         </div>
         <span className="text-sm font-medium text-white tracking-tight">ScouterFRC</span>
+      </div>
+
+      {/* Auto Sync Status Bar */}
+      <div className={clsx('px-4 py-2 border-b border-app-border flex items-center gap-2 text-[11px]', {
+        'bg-brand/10': isAutoSyncing,
+        'bg-green-500/10': hasData && !isAutoSyncing,
+      })}>
+        <Database className={clsx('flex-shrink-0', {
+          'text-brand animate-pulse': isAutoSyncing,
+          'text-green-500': hasData && !isAutoSyncing,
+          'text-slate-600': !hasData,
+        })} size={12} />
+        <div className="flex-1 min-w-0">
+          <p className={clsx('text-[10px] truncate', {
+            'text-brand font-medium': isAutoSyncing,
+            'text-green-500': hasData && !isAutoSyncing,
+            'text-slate-500': !hasData,
+          })}>
+            {isAutoSyncing ? 'Syncing data…' : hasData ? `Updated ${lastSyncTime}` : 'Waiting for data'}
+          </p>
+        </div>
       </div>
 
       {/* Nav */}

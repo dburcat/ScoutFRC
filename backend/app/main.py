@@ -8,7 +8,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.routers import (
     alliances, events, matches, robot_performances,
-    scouting_observations, sync_logs, teams, users, auth, admin,
+    scouting_observations, sync_logs, teams, users, auth, admin, health,
 )
 from app.core.scheduler import start_scheduler, stop_scheduler
 
@@ -94,3 +94,4 @@ app.include_router(teams.team_router)
 app.include_router(users.user_router)
 app.include_router(auth.auth_router)
 app.include_router(admin.admin_router)
+app.include_router(health.health_router)

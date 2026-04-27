@@ -1,14 +1,36 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
+import { useSyncStatus } from '@/hooks/useSyncStatus';
 import Sidebar from '@/pages/Sidebar';
 import LoginPage from '@/pages/LoginPage';
 import DashboardPage from '@/pages/DashboardPage';
 import EventsPage from '@/pages/EventsPage';
+import TeamProfilePage from '@/pages/TeamProfilePage';
+import MatchDetailPage from '@/pages/MatchDetailPage';
+import AllianceBuilderPage from '@/pages/AllianceBuilderPage';
+import ObservationFormPage from '@/pages/ObservationFormPage';
+import EventAnalyticsPage from '@/pages/EventAnalyticsPage';
 
 // Routes that require a logged-in user
 const PROTECTED_PATHS = ['/alliance', '/observations/new'];
 
 function AppShell() {
+  const queryClient = useQueryClient();
+  
+  // Start polling sync status on app load — available to all users including guests
+  // When sync completes, refetch data queries to show fresh data
+  const syncStatus = useSyncStatus();
+  
+  // When sync completes and we have fresh data, trigger dependent queries to refetch
+  if (syncStatus.data && syncStatus.data.events_count > 0 && syncStatus.data.teams_count > 0) {
+    // Invalidate queries so pages refetch fresh data
+    // This is safe to call frequently — React Query deduplicates
+    queryClient.invalidateQueries({ queryKey: ['events'] });
+    queryClient.invalidateQueries({ queryKey: ['teams'] });
+    queryClient.invalidateQueries({ queryKey: ['matches'] });
+  }
+
   return (
     <div className="flex min-h-screen w-full bg-app-bg">
       <Sidebar />
@@ -16,11 +38,14 @@ function AppShell() {
         <Routes>
           <Route path="/"        element={<DashboardPage />} />
           <Route path="/events"  element={<EventsPage />} />
+          <Route path="/teams/:teamId" element={<TeamProfilePage />} />
+          <Route path="/matches/:matchId" element={<MatchDetailPage />} />
+          <Route path="/events/:eventId/analytics" element={<EventAnalyticsPage />} />
+          <Route path="/alliance"  element={<AuthGate><AllianceBuilderPage /></AuthGate>} />
+          <Route path="/observations/new" element={<AuthGate><ObservationFormPage /></AuthGate>} />
           {/* Placeholder routes — built in later tiers */}
           <Route path="/teams"     element={<PlaceholderPage title="Teams" />} />
           <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
-          <Route path="/alliance"  element={<AuthGate><PlaceholderPage title="Alliance Builder" /></AuthGate>} />
-          <Route path="/observations/new" element={<AuthGate><PlaceholderPage title="Add Observation" /></AuthGate>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

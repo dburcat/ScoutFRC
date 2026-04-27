@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CalendarDays, MapPin, Users, ChevronRight, Search, Layers } from 'lucide-react';
 import { type Event, type Team, type Match } from '@/types/models';
 import {
@@ -124,6 +125,8 @@ function EventListItem({
 
 // ── Team table ──────────────────────────────────────────────────────────────────
 function TeamTable({ teams, isFetching }: { teams: Team[]; isFetching: boolean }) {
+  const navigate = useNavigate();
+  
   if (teams.length === 0) return (
     <div className="text-center py-8">
       <Users size={20} className="text-slate-700 mx-auto mb-2" />
@@ -150,15 +153,16 @@ function TeamTable({ teams, isFetching }: { teams: Team[]; isFetching: boolean }
           {teams.map(team => (
             <tr
               key={team.team_id}
+              onClick={() => navigate(`/teams/${team.team_id}`)}
               className={clsx(
-                'transition-colors',
+                'transition-colors cursor-pointer',
                 isFetching ? 'opacity-70' : 'hover:bg-app-card/50'
               )}
             >
               <td className="py-2 pr-4 font-mono font-medium text-white">
                 {team.team_number}
               </td>
-              <td className="py-2 pr-4 text-slate-300">
+              <td className="py-2 pr-4 text-slate-300 font-medium">
                 {team.team_name ?? '—'}
               </td>
               <td className="py-2 pr-4 text-slate-500 hidden sm:table-cell">
