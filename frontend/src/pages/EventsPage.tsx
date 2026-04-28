@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarDays, MapPin, Users, ChevronRight, Search, Layers } from 'lucide-react';
 import { type Event, type Team, type Match } from '@/types/models';
 import {
@@ -184,6 +184,8 @@ function TeamTable({ teams, isFetching }: { teams: Team[]; isFetching: boolean }
 
 // ── Match table ─────────────────────────────────────────────────────────────────
 function MatchTable({ matches, isFetching }: { matches: Match[]; isFetching: boolean }) {
+  const navigate = useNavigate();
+
   if (matches.length === 0) return (
     <div className="text-center py-8">
       <CalendarDays size={20} className="text-slate-700 mx-auto mb-2" />
@@ -229,8 +231,9 @@ function MatchTable({ matches, isFetching }: { matches: Match[]; isFetching: boo
             return (
               <tr
                 key={match.match_id}
+                onClick={() => navigate(`/matches/${match.match_id}`)}
                 className={clsx(
-                  'transition-colors',
+                  'transition-colors cursor-pointer',
                   isFetching ? 'opacity-70' : 'hover:bg-app-card/50'
                 )}
               >
@@ -285,6 +288,7 @@ type DetailTab = 'teams' | 'matches';
 
 function EventDetailPanel({ event }: { event: Event }) {
   const [tab, setTab] = useState<DetailTab>('teams');
+  const contentRef = useRef<HTMLDivElement | null>(null);
 
   const {
     data: teams = [],
@@ -301,6 +305,10 @@ function EventDetailPanel({ event }: { event: Event }) {
   const status = eventStatus(event);
   const isLoading = tab === 'teams' ? teamsLoading : matchesLoading;
   const isFetching = tab === 'teams' ? teamsFetching : matchesFetching;
+
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [event.event_id, tab]);
 
   return (
     <div className="flex-1 min-w-0 bg-app-card border border-app-border rounded-xl overflow-hidden flex flex-col">
@@ -358,7 +366,7 @@ function EventDetailPanel({ event }: { event: Event }) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-5">
+      <div ref={contentRef} className="flex-1 overflow-y-auto p-5">
         {isLoading ? (
           <div className="space-y-2">
             {[...Array(8)].map((_, i) => (
@@ -377,9 +385,20 @@ function EventDetailPanel({ event }: { event: Event }) {
 
 // ── Main Page ────────────────────────────────────────────────────────────────────
 export default function EventsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
-  const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
-  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
+  const detailPanelRef = useRef<HTMLDivElement | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState<number | null>(
+    (() => {
+      const eventId = searchParams.get('eventId');
+      return eventId ? Number(eventId) : null;
+    })()
+  );
+  const [selectedYear, setSelectedYear] = useState(() => {
+    const year = searchParams.get('year');
+    const parsedYear = year ? Number(year) : CURRENT_YEAR;
+    return Number.isFinite(parsedYear) ? parsedYear : CURRENT_YEAR;
+  });
 
   // Generate years from 2009 to CURRENT_YEAR
   const years = Array.from(
@@ -398,7 +417,6 @@ export default function EventsPage() {
     e.tba_event_key.toLowerCase().includes(search.toLowerCase()) ||
     (e.location ?? '').toLowerCase().includes(search.toLowerCase())
   ).sort((a, b) => {
-    const now = new Date();
     const aStart = new Date(a.start_date);
     const aEnd = new Date(a.end_date);
     const bStart = new Date(b.start_date);
@@ -427,7 +445,24 @@ export default function EventsPage() {
     }
   });
 
+  const updateUrlState = (year: number, eventId: number | null) => {
+    const params = new URLSearchParams(searchParams);
+    params.set('year', String(year));
+    if (eventId === null) {
+      params.delete('eventId');
+    } else {
+      params.set('eventId', String(eventId));
+    }
+    setSearchParams(params, { replace: true });
+  };
+
   const selectedEvent = events.find(e => e.event_id === selectedEventId) ?? null;
+
+  useEffect(() => {
+    if (selectedEvent) {
+      detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selectedEvent]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -439,8 +474,10 @@ export default function EventsPage() {
             <select
               value={selectedYear}
               onChange={(e) => {
-                setSelectedYear(Number(e.target.value));
+                const nextYear = Number(e.target.value);
+                setSelectedYear(nextYear);
                 setSelectedEventId(null); // Clear selection when year changes
+                updateUrlState(nextYear, null);
               }}
               className="bg-app-card border border-app-border rounded px-2 py-1 text-xs text-white cursor-pointer hover:border-app-muted focus:outline-none focus:ring-1 focus:ring-brand"
             >
@@ -492,18 +529,20 @@ export default function EventsPage() {
                 key={event.event_id}
                 event={event}
                 selected={event.event_id === selectedEventId}
-                onClick={() =>
-                  setSelectedEventId(prev =>
-                    prev === event.event_id ? null : event.event_id
-                  )
-                }
+                onClick={() => {
+                  setSelectedEventId(prev => {
+                    const nextEventId = prev === event.event_id ? null : event.event_id;
+                    updateUrlState(selectedYear, nextEventId);
+                    return nextEventId;
+                  });
+                }}
               />
             ))
           )}
         </div>
 
         {/* Detail panel */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div ref={detailPanelRef} className="flex-1 min-w-0 flex flex-col">
           {selectedEvent ? (
             <EventDetailPanel event={selectedEvent} />
           ) : (
@@ -512,7 +551,7 @@ export default function EventsPage() {
                 <CalendarDays size={24} className="text-slate-700 mx-auto mb-2" />
                 <p className="text-slate-500 text-sm">Select an event</p>
                 <p className="text-slate-700 text-xs mt-1">
-                  Click any event to view teams and matches
+                  Click any event to view teams and matches, then click a match for the breakdown
                 </p>
               </div>
             </div>

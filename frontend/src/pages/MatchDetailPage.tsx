@@ -2,7 +2,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Clock, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { type Match, type Alliance } from '@/types/models';
-import { matchQuery } from '@/api/queries';
+import { eventTeamsQuery, matchQuery } from '@/api/queries';
 import { clsx } from 'clsx';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -38,7 +38,13 @@ function StatusBadge({ status }: { status: Match['processing_status'] }) {
 }
 
 // ── Alliance panel ─────────────────────────────────────────────────────────────
-function AlliancePanel({ alliance }: { alliance: Alliance }) {
+function AlliancePanel({
+  alliance,
+  teamNumberById,
+}: {
+  alliance: Alliance;
+  teamNumberById: Map<number, number>;
+}) {
   const isRed = alliance.color === 'red';
 
   return (
@@ -100,7 +106,7 @@ function AlliancePanel({ alliance }: { alliance: Alliance }) {
                   R{rp.alliance_position}
                 </span>
                 <span className="text-white font-mono font-medium group-hover:text-brand transition-colors">
-                  Team {rp.team_id}
+                  Team {teamNumberById.get(rp.team_id) ?? rp.team_id}
                 </span>
               </div>
               <div className="flex items-center gap-3 text-[11px]">
@@ -161,6 +167,8 @@ export default function MatchDetailPage() {
   const matchIdNum = matchId ? parseInt(matchId) : null;
 
   const { data: match, isLoading, error } = useQuery(matchQuery(matchIdNum));
+  const { data: eventTeams = [] } = useQuery(eventTeamsQuery(match?.event_id ?? null));
+  const teamNumberById = new Map(eventTeams.map((t) => [t.team_id, t.team_number]));
 
   // ── Loading ──
   if (isLoading) {
@@ -263,8 +271,8 @@ export default function MatchDetailPage() {
 
           {/* Alliance panels */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            {red  && <AlliancePanel alliance={red}  />}
-            {blue && <AlliancePanel alliance={blue} />}
+            {red  && <AlliancePanel alliance={red} teamNumberById={teamNumberById} />}
+            {blue && <AlliancePanel alliance={blue} teamNumberById={teamNumberById} />}
           </div>
 
           {/* TBA link */}
