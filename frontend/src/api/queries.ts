@@ -61,6 +61,15 @@ export const eventTeamsQuery = (eventId: number | null) => ({
 });
 
 // ── Matches ────────────────────────────────────────────────────────────────
+
+export const matchQuery = (matchId: number | null) => ({
+  queryKey: ['match', matchId] as const,
+  queryFn:  () => api.get<Match>(`/matches/${matchId}`).then(r => r.data),
+  refetchInterval: INTERVAL.matches,
+  staleTime: 20_000,
+  enabled: !!matchId,
+});
+
 export const eventMatchesQuery = (eventId: number | null) => ({
   queryKey: ['event-matches', eventId] as const,
   queryFn:  () => api.get<Match[]>(`/events/${eventId}/matches?limit=100000`).then(r => r.data),

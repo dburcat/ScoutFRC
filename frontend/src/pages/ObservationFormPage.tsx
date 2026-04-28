@@ -134,7 +134,7 @@ export default function ObservationFormPage() {
               <option value="">Select an event...</option>
               {events.map((evt: any) => (
                 <option key={evt.event_id} value={evt.event_id}>
-                  {evt.event_name} ({evt.year})
+                  {evt.name} ({evt.season_year})
                 </option>
               ))}
             </select>

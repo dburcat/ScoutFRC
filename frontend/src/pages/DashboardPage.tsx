@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { CalendarDays, MapPin, Users, ArrowRight } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { CalendarDays, MapPin, Users, ArrowRight, Swords, Trophy } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { type Event, type Team } from '@/types/models';
+import { type Event, type Team, type Match } from '@/types/models';
 import {
   eventsQuery,
   eventTeamsQuery,
+  eventMatchesQuery,
   teamsQuery,
   CURRENT_YEAR,
 } from '@/api/queries';
@@ -141,9 +142,12 @@ function TeamDetail({ team }: { team: Team }) {
           {team.school_name}
         </p>
       )}
-      <p className="text-[10px] text-slate-700 mt-3">
-        Match analytics available in Tier 6
-      </p>
+      <Link
+        to={`/teams/${team.team_id}`}
+        className="mt-3 flex items-center justify-center gap-1 text-[11px] text-brand hover:text-brand/80 transition-colors"
+      >
+        Full profile <ArrowRight size={11} />
+      </Link>
     </div>
   );
 }
@@ -212,8 +216,9 @@ export default function DashboardPage() {
     isFetching: eventsFetching,
   } = useQuery(eventsQuery(CURRENT_YEAR));
 
-  const { data: eventTeams = [] } = useQuery(eventTeamsQuery(selectedEventId));
-  const { data: allTeams = [] }   = useQuery(teamsQuery());
+  const { data: eventTeams = [] }   = useQuery(eventTeamsQuery(selectedEventId));
+  const { data: allTeams = [] }    = useQuery(teamsQuery());
+  const { data: eventMatches = [], isLoading: matchesLoading } = useQuery(eventMatchesQuery(selectedEventId));
 
   const filteredEvents = events.filter(e =>
     e.name.toLowerCase().includes(eventSearch.toLowerCase()) ||
@@ -424,11 +429,190 @@ export default function DashboardPage() {
           </>
         )}
 
-        {activeTab !== 'events' && (
-          <div className="bg-app-card border border-app-border rounded-xl p-10 text-center">
-            <p className="text-slate-500 text-sm capitalize">{activeTab} view</p>
-            <p className="text-slate-700 text-xs mt-1">Coming in Tier 6</p>
-          </div>
+        {/* ── Matches tab ─────────────────────────────────────── */}
+        {activeTab === 'matches' && (
+          <>
+            {!selectedEventId ? (
+              <div className="bg-app-card border border-app-border rounded-xl p-10 text-center">
+                <Swords size={28} className="text-slate-700 mx-auto mb-3" />
+                <p className="text-slate-500 text-sm">Select an event to view its matches</p>
+                <button
+                  onClick={() => setActiveTab('events')}
+                  className="mt-3 text-[11px] text-brand hover:underline"
+                >
+                  Go to Events tab
+                </button>
+              </div>
+            ) : matchesLoading ? (
+              <div className="space-y-2">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="bg-app-card border border-app-border rounded-lg h-12 animate-pulse" />
+                ))}
+              </div>
+            ) : eventMatches.length === 0 ? (
+              <div className="bg-app-card border border-app-border rounded-xl p-8 text-center">
+                <p className="text-slate-500 text-sm">No matches recorded for this event yet</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <p className="text-[13px] font-medium text-white">
+                    Matches — {selectedEvent?.name}
+                    <span className="text-slate-600 font-normal ml-1">· {eventMatches.length} matches</span>
+                  </p>
+                  <Link
+                    to={`/events/${selectedEventId}/analytics`}
+                    className="flex items-center gap-1 text-[11px] text-brand hover:text-brand/80 transition-colors"
+                  >
+                    Analytics <ArrowRight size={11} />
+                  </Link>
+                </div>
+                <div className="bg-app-card border border-app-border rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-app-border bg-app-muted/30">
+                        <th className="px-4 py-2.5 text-left font-medium text-slate-400">#</th>
+                        <th className="px-4 py-2.5 text-left font-medium text-slate-400">Type</th>
+                        <th className="px-4 py-2.5 text-center font-medium text-red-400">Red</th>
+                        <th className="px-4 py-2.5 text-center font-medium text-blue-400">Blue</th>
+                        <th className="px-4 py-2.5 text-left font-medium text-slate-400 hidden md:table-cell">Status</th>
+                        <th className="px-4 py-2.5 text-right font-medium text-slate-400"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {eventMatches.slice(0, 20).map((match, idx) => {
+                        const red  = match.alliances.find(a => a.color === 'red');
+                        const blue = match.alliances.find(a => a.color === 'blue');
+                        const winner = red?.won ? 'red' : blue?.won ? 'blue' : null;
+                        return (
+                          <tr
+                            key={match.match_id}
+                            className={clsx(
+                              'border-b border-app-border transition-colors hover:bg-app-muted/20',
+                              idx % 2 === 0 ? 'bg-app-card' : 'bg-app-muted/10'
+                            )}
+                          >
+                            <td className="px-4 py-2.5 font-mono font-medium text-white">{match.match_number}</td>
+                            <td className="px-4 py-2.5 text-slate-500 capitalize">{match.match_type.slice(0,4)}</td>
+                            <td className={clsx('px-4 py-2.5 text-center font-medium', winner === 'red' ? 'text-red-300 font-bold' : 'text-red-400/70')}>
+                              {red?.total_score ?? '—'}
+                            </td>
+                            <td className={clsx('px-4 py-2.5 text-center font-medium', winner === 'blue' ? 'text-blue-300 font-bold' : 'text-blue-400/70')}>
+                              {blue?.total_score ?? '—'}
+                            </td>
+                            <td className="px-4 py-2.5 hidden md:table-cell">
+                              <span className={clsx('text-[10px] px-1.5 py-0.5 rounded', {
+                                'bg-green-900/30 text-green-400': match.processing_status === 'complete',
+                                'bg-slate-700/50 text-slate-500': match.processing_status === 'pending',
+                                'bg-amber-900/30 text-amber-400': match.processing_status === 'processing',
+                                'bg-red-900/30 text-red-400':     match.processing_status === 'failed',
+                              })}>
+                                {match.processing_status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right">
+                              <Link
+                                to={`/matches/${match.match_id}`}
+                                className="text-[11px] text-brand hover:underline"
+                              >
+                                Details
+                              </Link>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {eventMatches.length > 20 && (
+                    <div className="px-4 py-2.5 border-t border-app-border text-[11px] text-slate-600">
+                      Showing 20 of {eventMatches.length} — visit{' '}
+                      <Link to={`/events/${selectedEventId}/analytics`} className="text-brand hover:underline">
+                        Event Analytics
+                      </Link>{' '}
+                      for the full breakdown
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {/* ── Teams tab ───────────────────────────────────────── */}
+        {activeTab === 'teams' && (
+          <>
+            <div className="flex items-center justify-between">
+              <p className="text-[13px] font-medium text-white">
+                {selectedEventId ? `Teams at ${selectedEvent?.name}` : 'All teams'}
+                <span className="text-slate-600 font-normal ml-1">
+                  · {displayTeams.length} teams
+                </span>
+              </p>
+              <Link
+                to="/teams"
+                className="flex items-center gap-1 text-[11px] text-brand hover:text-brand/80 transition-colors"
+              >
+                Full directory <ArrowRight size={11} />
+              </Link>
+            </div>
+            {displayTeams.length === 0 ? (
+              <div className="bg-app-card border border-app-border rounded-xl p-8 text-center">
+                <Trophy size={24} className="text-slate-700 mx-auto mb-3" />
+                <p className="text-slate-500 text-sm">
+                  {selectedEventId ? 'No teams synced for this event yet' : 'No teams indexed yet'}
+                </p>
+              </div>
+            ) : (
+              <div className="bg-app-card border border-app-border rounded-lg overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-app-border bg-app-muted/30">
+                      <th className="px-4 py-2.5 text-left font-medium text-slate-400">#</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-slate-400">Name</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-slate-400 hidden sm:table-cell">Location</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-slate-400 hidden md:table-cell">Rookie year</th>
+                      <th className="px-4 py-2.5 text-right font-medium text-slate-400"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayTeams.slice(0, 25).map((team, idx) => {
+                      const loc = [team.city, team.state_prov].filter(Boolean).join(', ');
+                      return (
+                        <tr
+                          key={team.team_id}
+                          className={clsx(
+                            'border-b border-app-border hover:bg-app-muted/20 transition-colors',
+                            idx % 2 === 0 ? 'bg-app-card' : 'bg-app-muted/10'
+                          )}
+                        >
+                          <td className="px-4 py-2.5 font-mono font-medium text-white">{team.team_number}</td>
+                          <td className="px-4 py-2.5 text-slate-300 truncate max-w-[160px]">
+                            {team.team_name ?? `Team ${team.team_number}`}
+                          </td>
+                          <td className="px-4 py-2.5 text-slate-500 hidden sm:table-cell">{loc || '—'}</td>
+                          <td className="px-4 py-2.5 text-slate-500 hidden md:table-cell">{team.rookie_year ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-right">
+                            <Link
+                              to={`/teams/${team.team_id}`}
+                              className="text-[11px] text-brand hover:underline"
+                            >
+                              Profile
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {displayTeams.length > 25 && (
+                  <div className="px-4 py-2.5 border-t border-app-border text-[11px] text-slate-600">
+                    Showing 25 of {displayTeams.length} —{' '}
+                    <Link to="/teams" className="text-brand hover:underline">see all teams</Link>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

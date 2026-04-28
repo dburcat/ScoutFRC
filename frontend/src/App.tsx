@@ -11,6 +11,7 @@ import TeamProfilePage from '@/pages/TeamProfilePage';
 import MatchDetailPage from '@/pages/MatchDetailPage';
 import AllianceBuilderPage from '@/pages/AllianceBuilderPage';
 import ObservationFormPage from '@/pages/ObservationFormPage';
+import ObservationsPage from '@/pages/ObservationsPage';
 import EventAnalyticsPage from '@/pages/EventAnalyticsPage';
 
 // Routes that require a logged-in user
@@ -44,6 +45,7 @@ function AppShell() {
           <Route path="/matches/:matchId" element={<MatchDetailPage />} />
           <Route path="/events/:eventId/analytics" element={<EventAnalyticsPage />} />
           <Route path="/alliance"  element={<AuthGate><AllianceBuilderPage /></AuthGate>} />
+          <Route path="/observations" element={<ObservationsPage />} />
           <Route path="/observations/new" element={<AuthGate><ObservationFormPage /></AuthGate>} />
           {/* Placeholder routes — built in later tiers */}
           <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
