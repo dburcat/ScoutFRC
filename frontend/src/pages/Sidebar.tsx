@@ -59,6 +59,34 @@ export default function Sidebar() {
         </div>
       )}
 
+      {/* User Profile / Logout (only when authenticated) */}
+      {user && (
+        <div className="border-t border-app-border p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-full bg-brand/20 flex items-center justify-center flex-shrink-0 text-[11px] font-medium text-brand">
+                {initials(user.username)}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-white truncate leading-tight">
+                  {user.username}
+                </p>
+                <p className="text-[10px] text-slate-600 truncate capitalize">
+                  {roleLabel(user.role)}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={logout}
+              title="Log out"
+              className="text-slate-600 hover:text-slate-400 transition-colors flex-shrink-0"
+            >
+              <LogOut size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Auto Sync Status Bar */}
       <div className={clsx('px-4 py-2 border-b border-app-border flex items-center gap-2 text-[11px]', {
         'bg-brand/10': isAutoSyncing,
@@ -174,33 +202,7 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* User Profile / Logout (only when authenticated) */}
-      {user && (
-        <div className="border-t border-app-border p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-full bg-brand/20 flex items-center justify-center flex-shrink-0 text-[11px] font-medium text-brand">
-                {initials(user.username)}
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-white truncate leading-tight">
-                  {user.username}
-                </p>
-                <p className="text-[10px] text-slate-600 truncate capitalize">
-                  {roleLabel(user.role)}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={logout}
-              title="Log out"
-              className="text-slate-600 hover:text-slate-400 transition-colors flex-shrink-0"
-            >
-              <LogOut size={14} />
-            </button>
-          </div>
-        </div>
-      )}
+      
     </aside>
   );
 }
