@@ -1,7 +1,7 @@
-version: '3.9'
+
 
 services:
-  # PostgreSQL Database
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: scouterfrc_db
@@ -21,7 +21,23 @@ services:
     networks:
       - scouterfrc_network
 
-  # FastAPI Backend
+  # ── Redis (broker + result backend) ────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: scouterfrc_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scouterfrc_network
+
+  # ── FastAPI Backend ─────────────────────────────────────────────────────────
   backend:
     build:
       context: .
@@ -29,6 +45,8 @@ services:
     container_name: scouterfrc_backend
     environment:
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@postgres:5432/${DB_NAME:-scouterfrc}
+      REDIS_URL: redis://redis:6379/0
+      REDIS_RESULT_URL: redis://redis:6379/1
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
       TBA_API_KEY: ${TBA_API_KEY:-}
       APP_ENV: ${APP_ENV:-development}
@@ -36,6 +54,8 @@ services:
       - "8000:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - ./backend:/app
@@ -47,7 +67,86 @@ services:
       uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
 
-  # React Frontend (development)
+  # ── Celery Worker ───────────────────────────────────────────────────────────
+  celery_worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: scouterfrc_celery_worker
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@postgres:5432/${DB_NAME:-scouterfrc}
+      REDIS_URL: redis://redis:6379/0
+      REDIS_RESULT_URL: redis://redis:6379/1
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
+      TBA_API_KEY: ${TBA_API_KEY:-}
+      APP_ENV: ${APP_ENV:-development}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    networks:
+      - scouterfrc_network
+    command: >
+      python -m celery -A app.celery_app.celery_app worker
+      --loglevel=info
+      --queues=default,video,analytics,sync,reports
+      --concurrency=2
+      --hostname=worker@%h
+
+  # ── Celery Beat (periodic task scheduler) ───────────────────────────────────
+  celery_beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: scouterfrc_celery_beat
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@postgres:5432/${DB_NAME:-scouterfrc}
+      REDIS_URL: redis://redis:6379/0
+      REDIS_RESULT_URL: redis://redis:6379/1
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
+      TBA_API_KEY: ${TBA_API_KEY:-}
+      APP_ENV: ${APP_ENV:-development}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - celerybeat_schedule:/app/celerybeat
+    networks:
+      - scouterfrc_network
+    command: >
+      python -m celery -A app.celery_app.celery_app beat
+      --loglevel=info
+      --schedule=/app/celerybeat/celerybeat-schedule
+
+  # ── Flower (Celery monitoring UI) ───────────────────────────────────────────
+  flower:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: scouterfrc_flower
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      FLOWER_BASIC_AUTH: ${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-admin}
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - scouterfrc_network
+    command: >
+      python -m celery -A app.celery_app.celery_app flower
+      --port=5555
+      --broker=redis://redis:6379/0
+      --broker_api=redis://redis:6379/0
+
+  # ── React Frontend ──────────────────────────────────────────────────────────
   frontend:
     build:
       context: .
@@ -64,6 +163,8 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
+  celerybeat_schedule:
 
 networks:
   scouterfrc_network:
