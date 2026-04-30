@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.routers import (
+    video,
     alliances, events, matches, robot_performances,
     scouting_observations, sync_logs, teams, users, auth, admin, health, user_alliances, data,
 )
@@ -97,3 +98,4 @@ app.include_router(admin.admin_router)
 app.include_router(health.health_router)
 app.include_router(user_alliances.user_alliance_router)
 app.include_router(data.data_router)
+app.include_router(video.video_router)

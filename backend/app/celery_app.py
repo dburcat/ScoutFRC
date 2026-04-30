@@ -19,6 +19,7 @@ celery_app = Celery(
     backend=REDIS_RESULT_URL,
     include=[
         "app.tasks.sample",   # sample / health-check task
+        "app.tasks.video_tasks",  # video CV pipeline tasks
     ],
 )
 

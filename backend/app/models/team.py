@@ -22,3 +22,4 @@ class Team(Base):
     robot_performances = relationship("RobotPerformance", back_populates="team")
     scouting_observations = relationship("ScoutingObservation", back_populates="team")
     users = relationship("User", back_populates="team")
+    movement_tracks = relationship("MovementTrack", back_populates="team", foreign_keys="MovementTrack.team_id")

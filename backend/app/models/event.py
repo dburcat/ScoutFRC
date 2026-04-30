@@ -23,3 +23,4 @@ class Event(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     matches = relationship("Match", back_populates="event")
+    camera_calibrations = relationship("EventCameraCalibration", back_populates="event", cascade="all, delete-orphan")
