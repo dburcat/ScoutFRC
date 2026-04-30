@@ -162,10 +162,23 @@ def _reschedule(job_id: str, **interval_kwargs: int) -> None:
         logger.info("Scheduler: '%s' rescheduled → %s", job_id, interval_kwargs)
 
 
+# ── Dev flag ──────────────────────────────────────────────────────────────────
+# Set to True when you're ready to re-enable automatic TBA syncing.
+# All sync logic/jobs below are preserved; this just stops them from running.
+AUTOSYNC_ENABLED = False
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def start_scheduler() -> None:
     """Register all jobs and start the scheduler. Call from FastAPI startup."""
+    if not AUTOSYNC_ENABLED:
+        logger.info(
+            "Scheduler: AUTOSYNC_ENABLED=False — auto-sync suspended "
+            "(flip to True in scheduler.py to re-enable)"
+        )
+        return
+
     if _scheduler.running:
         return
 

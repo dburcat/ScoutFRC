@@ -1,16 +1,16 @@
-from sqlalchemy.orm import Session
-from app.models import ScoutingObservation
+from sqlalchemy.orm import Session, joinedload
+from app.models import ScoutingObservation, Match
 from app.schemas.scouting_observation_schema import ScoutingObservation_schema
 
 def get_scouting_observations(db: Session, skip: int = 0, limit: int = 100):
-        scouting_observations = db.query(ScoutingObservation).offset(skip).limit(limit).all()
+        scouting_observations = db.query(ScoutingObservation).options(joinedload(ScoutingObservation.match).joinedload(Match.event), joinedload(ScoutingObservation.team)).order_by(ScoutingObservation.submitted_at.desc()).offset(skip).limit(limit).all()
         return scouting_observations
 
 def get_scouting_observations_count(db: Session) -> int:
         return db.query(ScoutingObservation).count()
 
 def get_scouting_observation(scouting_observation_id: int, db: Session):
-        scouting_observation_obj = db.query(ScoutingObservation).filter(ScoutingObservation.observation_id == scouting_observation_id).first()
+        scouting_observation_obj = db.query(ScoutingObservation).options(joinedload(ScoutingObservation.match).joinedload(Match.event), joinedload(ScoutingObservation.team)).filter(ScoutingObservation.observation_id == scouting_observation_id).first()
         return scouting_observation_obj
 
 def create_scouting_observation(scouting_observation: ScoutingObservation_schema, db: Session):
@@ -30,3 +30,10 @@ def bulk_create_scouting_observations(observations: list[ScoutingObservation_sch
         for obj in created:
                 db.refresh(obj)
         return created
+
+def delete_scouting_observation(scouting_observation_id: int, db: Session):
+        scouting_observation_obj = db.query(ScoutingObservation).options(joinedload(ScoutingObservation.match).joinedload(Match.event), joinedload(ScoutingObservation.team)).filter(ScoutingObservation.observation_id == scouting_observation_id).first()
+        if scouting_observation_obj:
+                db.delete(scouting_observation_obj)
+                db.commit()
+        return scouting_observation_obj
