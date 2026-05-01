@@ -51,3 +51,4 @@ class Match(Base):
 	robot_performances = relationship("RobotPerformance", back_populates="match", cascade="all, delete-orphan")
 	scouting_observations = relationship("ScoutingObservation", back_populates="match", cascade="all, delete-orphan")
 	movement_tracks = relationship("MovementTrack", back_populates="match", cascade="all, delete-orphan")
+	phase_stats = relationship("PhaseStat", back_populates="match", cascade="all, delete-orphan")

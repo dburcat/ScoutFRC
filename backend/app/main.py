@@ -11,6 +11,7 @@ from app.routers import (
     alliances, events, matches, robot_performances,
     scouting_observations, sync_logs, teams, users, auth, admin, health, user_alliances, data,
 )
+from app.routers.performance import performance_router
 from app.core.scheduler import start_scheduler, stop_scheduler
 
 
@@ -99,3 +100,4 @@ app.include_router(health.health_router)
 app.include_router(user_alliances.user_alliance_router)
 app.include_router(data.data_router)
 app.include_router(video.video_router)
+app.include_router(performance_router)

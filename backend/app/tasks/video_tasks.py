@@ -99,6 +99,19 @@ def _process_video_task(
         "status": "complete",
     }
     logger.info("process_video_file complete: %s", result)
+
+    # ── Auto-dispatch analytics task ──────────────────────────────────────────
+    try:
+        from app.tasks.analytics_tasks import compute_robot_performance
+        compute_robot_performance.apply_async(
+            kwargs={"match_id": match_id},
+            queue="analytics",
+            countdown=2,  # brief delay to ensure DB writes are visible
+        )
+        logger.info("Dispatched compute_robot_performance for match %d", match_id)
+    except Exception as exc:  # pragma: no cover — don't fail video task if analytics fails to queue
+        logger.error("Failed to dispatch analytics task for match %d: %s", match_id, exc)
+
     return result
 
 

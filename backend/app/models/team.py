@@ -23,3 +23,4 @@ class Team(Base):
     scouting_observations = relationship("ScoutingObservation", back_populates="team")
     users = relationship("User", back_populates="team")
     movement_tracks = relationship("MovementTrack", back_populates="team", foreign_keys="MovementTrack.team_id")
+    phase_stats = relationship("PhaseStat", back_populates="team", cascade="all, delete-orphan")

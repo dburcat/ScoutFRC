@@ -4,6 +4,7 @@ from .movement_track import MovementTrack
 from .base import Base
 from .event import Event
 from .match import Match
+from .phase_stat import PhaseStat
 from .robot_performance import RobotPerformance
 from .scouting_observation import ScoutingObservation
 from .sync_log import SyncLog
@@ -18,6 +19,7 @@ __all__ = [
 	"Base",
 	"Event",
 	"Match",
+	"PhaseStat",
 	"RobotPerformance",
 	"ScoutingObservation",
 	"SyncLog",
