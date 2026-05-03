@@ -3,6 +3,7 @@ from app.schemas.match_schema import Match_schema
 from app.schemas.team_schema import Team_schema
 from app.crud import crud_event, crud_match, crud_team
 from app.db.session import get_db
+from app.services.cache_service import cache, TTL_EVENT, TTL_RANKINGS
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -31,10 +32,31 @@ def get_events(
 
 @event_router.get("/{event_id}", response_model=Event_schema)
 def get_event(event_id: int, db: Session = Depends(get_db)):
+        # Cache-aside: check cache first
+        cached = cache.get(cache.event_key(event_id))
+        if cached is not None:
+            return cached
+
         event_obj = crud_event.get_event(event_id, db)
         if event_obj is None:
                 raise HTTPException(status_code=404, detail="Event not found")
+
+        # Serialize and cache
+        from app.schemas.event_schema import Event_schema as EventSchema
+        cache.set(cache.event_key(event_id), EventSchema.model_validate(event_obj).model_dump(mode="json"), ttl=TTL_EVENT)
         return event_obj
+
+@event_router.get("/{event_id}/rankings")
+def get_event_rankings(event_id: int, db: Session = Depends(get_db)):
+        """Team rankings for an event, cached for 10 minutes."""
+        cached = cache.get(cache.rankings_key(event_id))
+        if cached is not None:
+            return cached
+
+        from app.tasks.cache_tasks import _build_event_rankings
+        rankings = _build_event_rankings(db, event_id)
+        cache.set(cache.rankings_key(event_id), rankings, ttl=TTL_RANKINGS)
+        return rankings
 
 @event_router.get("/{event_id}/matches", response_model=list[Match_schema])
 def get_event_matches(

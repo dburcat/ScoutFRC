@@ -21,6 +21,12 @@ from app.core.scheduler import start_scheduler, stop_scheduler
 async def lifespan(app: FastAPI):
     # Startup
     start_scheduler()
+    # Dispatch cache warm-up in background (non-blocking, fails silently if Redis unavailable)
+    try:
+        from app.tasks.cache_tasks import warmup_cache
+        warmup_cache.apply_async(queue="default", countdown=5)  # type: ignore[union-attr]
+    except Exception:
+        pass
     yield
     # Shutdown
     stop_scheduler()

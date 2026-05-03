@@ -1,6 +1,7 @@
 from app.schemas.match_schema import Match_schema
 from app.crud import crud_match
 from app.db.session import get_db
+from app.services.cache_service import cache
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -35,6 +36,10 @@ def get_matches_by_event(
 @match_router.post("/", response_model=Match_schema, status_code=201)
 def create_match(match: Match_schema, db: Session = Depends(get_db)):
         match_obj = crud_match.create_match(match, db)
+        # Invalidate rankings and event summary for the affected event
+        if match_obj.event_id:
+            cache.invalidate(cache.rankings_key(match_obj.event_id))
+            cache.invalidate(cache.event_summary_key(match_obj.event_id))
         return match_obj
 
 @match_router.patch("/{match_id}", response_model=Match_schema)
@@ -42,4 +47,8 @@ def update_match(match_id: int, match: Match_schema, db: Session = Depends(get_d
         match_obj = crud_match.update_match(match_id, match, db)
         if match_obj is None:
                 raise HTTPException(status_code=404, detail="Match not found")
+        # Invalidate rankings and event summary for the affected event
+        if match_obj.event_id:
+            cache.invalidate(cache.rankings_key(match_obj.event_id))
+            cache.invalidate(cache.event_summary_key(match_obj.event_id))
         return match_obj

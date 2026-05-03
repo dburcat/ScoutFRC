@@ -20,6 +20,8 @@ celery_app = Celery(
     include=[
         "app.tasks.sample",   # sample / health-check task
         "app.tasks.video_tasks",  # video CV pipeline tasks
+        "app.tasks.analytics_tasks",  # robot performance analytics
+        "app.tasks.cache_tasks",  # cache refresh and warmup
     ],
 )
 
@@ -56,4 +58,11 @@ celery_app.conf.update(
     # ── Flower / monitoring ───────────────────────────────────────────────────
     worker_send_task_events=True,
     task_send_sent_event=True,
+    # ── Celery Beat schedule ──────────────────────────────────────────────────
+    beat_schedule={
+        "refresh-dashboard-cache": {
+            "task": "cache_tasks.refresh_dashboard_cache",
+            "schedule": int(os.getenv("CACHE_REFRESH_INTERVAL_S", "600")),  # default 10 min
+        },
+    },
 )

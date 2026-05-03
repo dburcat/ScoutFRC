@@ -1,6 +1,7 @@
 from app.schemas.scouting_observation_schema import ScoutingObservation_schema, ScoutingObservationRead
 from app.crud import crud_scouting_observation
 from app.db.session import get_db
+from app.services.cache_service import cache
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -24,8 +25,12 @@ def get_scouting_observation(scouting_observation_id: int, db: Session = Depends
 
 @scouting_observation_router.post("/", response_model=ScoutingObservation_schema, status_code=201)
 def create_scouting_observation(scouting_observation: ScoutingObservation_schema, db: Session = Depends(get_db)):
-        scouting_observation_obj = crud_scouting_observation.create_scouting_observation(scouting_observation, db)
-        return scouting_observation_obj
+        obs_obj = crud_scouting_observation.create_scouting_observation(scouting_observation, db)
+        # Invalidate team and rankings caches — new observation may affect stats
+        if obs_obj.team_id:
+            cache.invalidate(cache.team_key(obs_obj.team_id))
+        cache.invalidate_prefix("rankings:")
+        return obs_obj
 
 @scouting_observation_router.delete("/{scouting_observation_id}", status_code=204)
 def delete_scouting_observation(scouting_observation_id: int, db: Session = Depends(get_db)):

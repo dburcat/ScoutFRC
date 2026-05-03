@@ -175,6 +175,48 @@ def sync_all_teams_endpoint(
     return {"status": "ok", **result}
 
 
+@admin_router.get("/cache/stats")
+def cache_stats(current_user: User = Depends(require_admin)):
+    """Cache hit rate, key count, and memory usage."""
+    from app.services.cache_service import cache
+    return {
+        "healthy": cache.is_healthy(),
+        "key_count": cache.key_count(),
+        "memory_used_bytes": cache.memory_used_bytes(),
+        **cache.get_metrics(),
+    }
+
+
+@admin_router.post("/cache/invalidate")
+def cache_invalidate(
+    prefix: str = "all",
+    current_user: User = Depends(require_admin),
+):
+    """Manually invalidate cache keys by prefix, or pass 'all' to flush everything."""
+    from app.services.cache_service import cache
+    if prefix == "all":
+        deleted = sum([
+            cache.invalidate_prefix("rankings:"),
+            cache.invalidate_prefix("team:"),
+            cache.invalidate_prefix("event:"),
+            cache.invalidate_prefix("event_summary:"),
+            cache.invalidate_prefix("alliance:"),
+            cache.invalidate_prefix("dashboard:"),
+        ])
+    else:
+        deleted = cache.invalidate_prefix(prefix)
+    return {"deleted_keys": deleted, "prefix": prefix}
+
+
+@admin_router.post("/cache/warmup")
+def cache_warmup(current_user: User = Depends(require_admin)):
+    """Manually trigger cache warm-up task."""
+    from celery import Task
+    from app.tasks.cache_tasks import warmup_cache
+    result = warmup_cache.apply_async(queue="default")  # type: ignore[union-attr]
+    return {"task_id": result.id, "status": "queued"}
+
+
 @admin_router.post("/sync-years/{from_year}/{to_year}")
 def sync_years_endpoint(
     from_year: int,
