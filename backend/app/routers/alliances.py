@@ -1,6 +1,7 @@
 from app.schemas.alliance_schema import Alliance_schema
 from app.crud import crud_alliance
 from app.db.session import get_db
+from app.services.cache_service import cache, TTL_ALLIANCE
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -13,12 +14,21 @@ def get_alliances(db: Session = Depends(get_db)):
 
 @alliance_router.get("/{alliance_id}", response_model=Alliance_schema)
 def get_alliance(alliance_id: int, db: Session = Depends(get_db)):
+        # Cache-aside
+        cached = cache.get(cache.alliance_key(alliance_id))
+        if cached is not None:
+            return cached
+
         alliance_obj = crud_alliance.get_alliance(alliance_id, db)
         if alliance_obj is None:
                 raise HTTPException(status_code=404, detail="Alliance not found")
+
+        cache.set(cache.alliance_key(alliance_id), Alliance_schema.model_validate(alliance_obj).model_dump(mode="json"), ttl=TTL_ALLIANCE)
         return alliance_obj
 
 @alliance_router.post("/", response_model=Alliance_schema, status_code=201)
 def create_alliance(alliance: Alliance_schema, db: Session = Depends(get_db)):
         alliance_obj = crud_alliance.create_alliance(alliance, db)
+        # Invalidate alliance list cache on new alliance
+        cache.invalidate_prefix("alliance:")
         return alliance_obj

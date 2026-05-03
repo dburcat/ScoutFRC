@@ -2,6 +2,7 @@ from app.schemas.team_schema import Team_schema
 from app.schemas.match_schema import Match_schema
 from app.crud import crud_team
 from app.db.session import get_db
+from app.services.cache_service import cache, TTL_TEAM
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -20,9 +21,16 @@ def get_teams(
 
 @team_router.get("/{team_id}", response_model=Team_schema)
 def get_team(team_id: int, db: Session = Depends(get_db)):
+    # Cache-aside: check cache first
+    cached = cache.get(cache.team_key(team_id))
+    if cached is not None:
+        return cached
+
     team_obj = crud_team.get_team(team_id, db)
     if team_obj is None:
         raise HTTPException(status_code=404, detail="Team not found")
+
+    cache.set(cache.team_key(team_id), Team_schema.model_validate(team_obj).model_dump(mode="json"), ttl=TTL_TEAM)
     return team_obj
 
 @team_router.get("/{team_id}/matches", response_model=list[Match_schema])
