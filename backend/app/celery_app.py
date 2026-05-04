@@ -22,6 +22,8 @@ celery_app = Celery(
         "app.tasks.video_tasks",  # video CV pipeline tasks
         "app.tasks.analytics_tasks",  # robot performance analytics
         "app.tasks.cache_tasks",  # cache refresh and warmup
+        "app.tasks.tba_tasks",  # TBA continuous sync
+        "app.tasks.report_tasks",  # report generation
     ],
 )
 
@@ -62,7 +64,11 @@ celery_app.conf.update(
     beat_schedule={
         "refresh-dashboard-cache": {
             "task": "cache_tasks.refresh_dashboard_cache",
-            "schedule": int(os.getenv("CACHE_REFRESH_INTERVAL_S", "600")),  # default 10 min
+            "schedule": int(os.getenv("CACHE_REFRESH_INTERVAL_S", "600")),
+        },
+        "sync-tba-data": {
+            "task": "tba_tasks.sync_tba_data",
+            "schedule": int(os.getenv("TBA_SYNC_INTERVAL_S", "300")),  # default 5 min
         },
     },
 )

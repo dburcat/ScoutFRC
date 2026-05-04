@@ -208,7 +208,15 @@ def cache_invalidate(
     return {"deleted_keys": deleted, "prefix": prefix}
 
 
-@admin_router.post("/cache/warmup")
+@admin_router.post("/sync/trigger")
+def sync_trigger(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Manually fire an immediate TBA sync for all active events."""
+    from app.tasks.tba_tasks import sync_tba_data
+    result = sync_tba_data.apply_async(queue="sync")  # type: ignore[union-attr]
+    return {"task_id": result.id, "status": "queued"}
 def cache_warmup(current_user: User = Depends(require_admin)):
     """Manually trigger cache warm-up task."""
     from celery import Task

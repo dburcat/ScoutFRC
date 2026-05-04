@@ -5,6 +5,7 @@ from .base import Base
 from .event import Event
 from .match import Match
 from .phase_stat import PhaseStat
+from .report_record import ReportRecord
 from .robot_performance import RobotPerformance
 from .scouting_observation import ScoutingObservation
 from .sync_log import SyncLog
@@ -20,6 +21,7 @@ __all__ = [
 	"Event",
 	"Match",
 	"PhaseStat",
+	"ReportRecord",
 	"RobotPerformance",
 	"ScoutingObservation",
 	"SyncLog",
