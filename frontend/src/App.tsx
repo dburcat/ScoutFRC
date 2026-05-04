@@ -9,6 +9,7 @@ import EventsPage from '@/pages/EventsPage';
 import TeamsPage from '@/pages/TeamsPage';
 import TeamProfilePage from '@/pages/TeamProfilePage';
 import MatchDetailPage from '@/pages/MatchDetailPage';
+import MatchVisualizationPage from '@/pages/MatchVisualizationPage';
 import AllianceBuilderPage from '@/pages/AllianceBuilderPage';
 import ObservationFormPage from '@/pages/ObservationFormPage';
 import ObservationsPage from '@/pages/ObservationsPage';
@@ -43,6 +44,7 @@ function AppShell() {
           <Route path="/teams"   element={<TeamsPage />} />
           <Route path="/teams/:teamId" element={<TeamProfilePage />} />
           <Route path="/matches/:matchId" element={<MatchDetailPage />} />
+          <Route path="/matches/:matchId/visualization" element={<MatchVisualizationPage />} />
           <Route path="/events/:eventId/analytics" element={<EventAnalyticsPage />} />
           <Route path="/alliance"  element={<AuthGate><AllianceBuilderPage /></AuthGate>} />
           <Route path="/observations" element={<ObservationsPage />} />

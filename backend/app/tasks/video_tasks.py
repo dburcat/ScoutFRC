@@ -21,6 +21,7 @@ from app.celery_app import celery_app
 from app.crud.crud_movement_track import bulk_create_movement_tracks, get_calibration_for_event
 from app.db.session import SessionLocal
 from app.services.video_processor import VideoProcessingError, VideoProcessor
+from app.services.websocket_utils import emit_task_progress_sync
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +30,30 @@ USE_GPU = os.getenv("CELERY_USE_GPU", "false").lower() == "true"
 
 
 def _update(task: Task, processed: int, total: int, stage: str) -> None:
+    # Update Celery task state
+    state_meta = {
+        "processed_frames": processed,
+        "total_frames": total,
+        "stage": stage,
+        "percent": int(processed / max(total, 1) * 100),
+    }
     task.update_state(
         state="PROGRESS",
-        meta={
-            "processed_frames": processed,
-            "total_frames": total,
-            "stage": stage,
-            "percent": int(processed / max(total, 1) * 100),
-        },
+        meta=state_meta,
     )
+    
+    # Also emit via WebSocket for real-time updates
+    try:
+        emit_task_progress_sync(
+            task_id=task.request.id,
+            status="PROGRESS",
+            stage=stage,
+            current=processed,
+            total=total,
+        )
+    except Exception as exc:
+        # Don't let WebSocket errors break the video processing
+        logger.warning("Failed to emit WebSocket progress: %s", exc)
 
 
 def _process_video_task(
@@ -134,13 +150,59 @@ def _process_video_task_celery(
     team_id_lookup: dict | None = None,
 ) -> dict:
     try:
-        return _process_video_task(
+        result = _process_video_task(
             self, match_id, video_path, alliance_teams, event_id, team_id_lookup
         )
+        
+        # Emit success via WebSocket
+        try:
+            emit_task_progress_sync(
+                task_id=self.request.id,
+                status="SUCCESS",
+                stage="complete",
+                current=1,
+                total=1,
+                result=result,
+            )
+        except Exception as exc:
+            logger.warning("Failed to emit WebSocket success: %s", exc)
+        
+        return result
     except VideoProcessingError as exc:
         logger.error("VideoProcessingError for match %d: %s", match_id, exc)
+        
+        # Emit error via WebSocket
+        try:
+            emit_task_progress_sync(
+                task_id=self.request.id,
+                status="FAILURE",
+                stage="error",
+                current=0,
+                total=1,
+                error=str(exc),
+            )
+        except Exception as ws_exc:
+            logger.warning("Failed to emit WebSocket error: %s", ws_exc)
+        
         # Do not retry corrupt/unsupported video errors
         raise self.retry(exc=exc, max_retries=0)
+    except Exception as exc:
+        logger.error("Unexpected error in video processing for match %d: %s", match_id, exc)
+        
+        # Emit error via WebSocket
+        try:
+            emit_task_progress_sync(
+                task_id=self.request.id,
+                status="FAILURE",
+                stage="error",
+                current=0,
+                total=1,
+                error=str(exc),
+            )
+        except Exception as ws_exc:
+            logger.warning("Failed to emit WebSocket error: %s", ws_exc)
+        
+        raise
 
 
 process_video_file: Task = cast(Task, _process_video_task_celery)

@@ -264,6 +264,12 @@ export default function MatchDetailPage() {
                 ▶ Watch video
               </a>
             )}
+            <Link
+              to={`/matches/${match.id}/visualization`}
+              className="bg-app-card border border-app-border rounded-lg px-3 py-2 text-xs text-brand hover:text-brand/80 transition-colors"
+            >
+              📊 View visualization
+            </Link>
           </div>
 
           {/* Score comparison */}
