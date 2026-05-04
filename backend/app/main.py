@@ -13,6 +13,8 @@ from app.routers import (
 )
 from app.routers.performance import performance_router
 from app.routers.reports import reports_router
+from app.routers.websocket import websocket_router
+from app.routers.trajectories import trajectories_router
 from app.core.scheduler import start_scheduler, stop_scheduler
 
 
@@ -109,3 +111,5 @@ app.include_router(data.data_router)
 app.include_router(video.video_router)
 app.include_router(performance_router)
 app.include_router(reports_router)
+app.include_router(websocket_router)
+app.include_router(trajectories_router)
