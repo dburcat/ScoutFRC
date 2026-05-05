@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
@@ -9,30 +10,36 @@ import EventsPage from '@/pages/EventsPage';
 import TeamsPage from '@/pages/TeamsPage';
 import TeamProfilePage from '@/pages/TeamProfilePage';
 import MatchDetailPage from '@/pages/MatchDetailPage';
-import MatchVisualizationPage from '@/pages/MatchVisualizationPage';
+import { MatchVisualizationPage } from '@/pages/MatchVisualizationPage';
 import AllianceBuilderPage from '@/pages/AllianceBuilderPage';
 import ObservationFormPage from '@/pages/ObservationFormPage';
 import ObservationsPage from '@/pages/ObservationsPage';
 import EventAnalyticsPage from '@/pages/EventAnalyticsPage';
+import MobileScoutPage from '@/pages/MobileScoutPage';
 
-// Routes that require a logged-in user
-const PROTECTED_PATHS = ['/alliance', '/observations/new'];
 
 function AppShell() {
   const queryClient = useQueryClient();
-  
-  // Start polling sync status on app load — available to all users including guests
-  // When sync completes, refetch data queries to show fresh data
+  const [syncToast, setSyncToast] = useState<string | null>(null);
+
   const syncStatus = useSyncStatus();
-  
-  // When sync completes and we have fresh data, trigger dependent queries to refetch
+
   if (syncStatus.data && syncStatus.data.events_count > 0 && syncStatus.data.teams_count > 0) {
-    // Invalidate queries so pages refetch fresh data
-    // This is safe to call frequently — React Query deduplicates
     queryClient.invalidateQueries({ queryKey: ['events'] });
     queryClient.invalidateQueries({ queryKey: ['teams'] });
     queryClient.invalidateQueries({ queryKey: ['matches'] });
   }
+
+  // Listen for offline queue sync completions and show a toast
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const count = (e as CustomEvent<{ count: number }>).detail.count;
+      setSyncToast(`${count} offline observation${count !== 1 ? 's' : ''} synced`);
+      setTimeout(() => setSyncToast(null), 4000);
+    };
+    window.addEventListener('offline-sync-complete', handler);
+    return () => window.removeEventListener('offline-sync-complete', handler);
+  }, []);
 
   return (
     <div className="flex min-h-screen w-full bg-app-bg">
@@ -49,11 +56,21 @@ function AppShell() {
           <Route path="/alliance"  element={<AuthGate><AllianceBuilderPage /></AuthGate>} />
           <Route path="/observations" element={<ObservationsPage />} />
           <Route path="/observations/new" element={<AuthGate><ObservationFormPage /></AuthGate>} />
+          {/* Tier 10 — Mobile PWA scouting form (no auth required — works offline) */}
+          <Route path="/scout" element={<MobileScoutPage />} />
           {/* Placeholder routes — built in later tiers */}
           <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+
+      {/* Offline sync toast */}
+      {syncToast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 bg-green-900/90 border border-green-700/60 rounded-xl text-green-300 text-sm font-medium shadow-lg backdrop-blur-sm animate-fade-in">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          {syncToast}
+        </div>
+      )}
     </div>
   );
 }
