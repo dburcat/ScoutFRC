@@ -24,6 +24,7 @@ celery_app = Celery(
         "app.tasks.cache_tasks",  # cache refresh and warmup
         "app.tasks.tba_tasks",  # TBA continuous sync
         "app.tasks.report_tasks",  # report generation
+        "app.tasks.prediction_tasks",  # ML prediction model training & batch scoring
     ],
 )
 
