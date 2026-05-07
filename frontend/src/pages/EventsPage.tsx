@@ -287,7 +287,7 @@ function MatchTable({ matches, isFetching }: { matches: Match[]; isFetching: boo
 type DetailTab = 'teams' | 'matches';
 
 function EventDetailPanel({ event }: { event: Event }) {
-  const [tab, setTab] = useState<DetailTab>('teams');
+  const [tab, setTab] = useState<DetailTab>('matches');
   const contentRef = useRef<HTMLDivElement | null>(null);
 
   const {
@@ -339,14 +339,14 @@ function EventDetailPanel({ event }: { event: Event }) {
           )}
           <span className="flex items-center gap-1.5 text-xs text-slate-500">
             <Users size={11} />
-            {teams.length} teams · {matches.length} matches
+            {matches.length} matches · {teams.length} teams
           </span>
         </div>
       </div>
 
       {/* Sub-tabs */}
       <div className="flex border-b border-app-border flex-shrink-0">
-        {(['teams', 'matches'] as DetailTab[]).map(t => (
+        {(['matches', 'teams'] as DetailTab[]).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -359,7 +359,7 @@ function EventDetailPanel({ event }: { event: Event }) {
           >
             {t}
             <span className="ml-1.5 text-[10px] text-slate-600">
-              {t === 'teams' ? teams.length : matches.length}
+              {t === 'matches' ? matches.length : teams.length}
             </span>
           </button>
         ))}
@@ -373,10 +373,10 @@ function EventDetailPanel({ event }: { event: Event }) {
               <div key={i} className="h-8 bg-app-muted rounded animate-pulse" />
             ))}
           </div>
-        ) : tab === 'teams' ? (
-          <TeamTable teams={teams} isFetching={teamsFetching} />
-        ) : (
+        ) : tab === 'matches' ? (
           <MatchTable matches={matches} isFetching={matchesFetching} />
+        ) : (
+          <TeamTable teams={teams} isFetching={teamsFetching} />
         )}
       </div>
     </div>

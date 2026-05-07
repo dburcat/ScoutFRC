@@ -155,7 +155,11 @@ def _reschedule(job_id: str, **interval_kwargs: int) -> None:
 # ── Dev flag ──────────────────────────────────────────────────────────────────
 # Set to True when you're ready to re-enable automatic TBA syncing.
 # All sync logic/jobs below are preserved; this just stops them from running.
-AUTOSYNC_ENABLED = True
+# APScheduler-based dispatch is disabled — Celery Beat now owns all periodic
+# task scheduling (see celery_config.py beat_schedule). APScheduler had
+# reliability issues under uvicorn --reload and is redundant with beat.
+# Set to True only if you need dynamic interval adjustment at runtime.
+AUTOSYNC_ENABLED = False
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

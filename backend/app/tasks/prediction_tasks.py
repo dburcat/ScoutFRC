@@ -417,3 +417,70 @@ def _run_batch_predictions_celery(self: Task, event_id: int) -> dict:
 
 
 run_batch_predictions: Task = cast(Task, _run_batch_predictions_celery)
+
+
+# ── Beat-compatible polling tasks ─────────────────────────────────────────────
+
+@celery_app.task(
+    name="prediction_tasks.refresh_active_event_predictions",
+    queue="analytics",
+    max_retries=1,
+    autoretry_for=(Exception,),
+)
+def refresh_active_event_predictions() -> dict:
+    """
+    Beat-triggered task: dispatch run_batch_predictions for every active/upcoming
+    event so prediction cache stays fresh without manual API calls.
+    Runs every 10 minutes — fast enough to reflect new match results.
+    """
+    from app.models.event import Event
+    from datetime import date, timedelta
+
+    today = date.today()
+    window_end = today + timedelta(days=7)
+
+    with SessionLocal() as db:
+        events = (
+            db.query(Event)
+            .filter(Event.start_date <= window_end, Event.end_date >= today)
+            .all()
+        )
+        event_ids = [e.event_id for e in events]
+
+    if not event_ids:
+        logger.info("refresh_active_event_predictions: no active/upcoming events")
+        return {"dispatched": 0}
+
+    dispatched = 0
+    for event_id in event_ids:
+        try:
+            run_batch_predictions.apply_async(
+                kwargs={"event_id": event_id},
+                queue="analytics",
+            )
+            dispatched += 1
+        except Exception as exc:
+            logger.warning("Failed to dispatch predictions for event %d: %s", event_id, exc)
+
+    logger.info("refresh_active_event_predictions: dispatched %d event(s)", dispatched)
+    return {"dispatched": dispatched}
+
+
+@celery_app.task(
+    name="prediction_tasks.scheduled_model_retrain",
+    queue="analytics",
+    max_retries=1,
+    autoretry_for=(Exception,),
+)
+def scheduled_model_retrain() -> dict:
+    """
+    Beat-triggered task: retrain the prediction model nightly so it
+    incorporates the day's new match results automatically.
+    """
+    logger.info("scheduled_model_retrain: dispatching train_prediction_model")
+    try:
+        result = train_prediction_model.apply_async(queue="analytics")
+        return {"task_id": result.id, "status": "dispatched"}
+    except Exception as exc:
+        logger.error("scheduled_model_retrain: failed to dispatch: %s", exc)
+        raise

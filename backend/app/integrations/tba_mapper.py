@@ -3,7 +3,7 @@ import logging
 from datetime import date, datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy import text
+from sqlalchemy import text, case, and_, or_, literal
 from app.models import Event, Team, Match, Alliance, RobotPerformance
 
 logger = logging.getLogger(__name__)
@@ -166,6 +166,24 @@ def upsert_match(
             match_number=match_number,
             played_at=played_at,
             video_url=video_url,
+            # Reset to pending if a video_url is newly added so the CV pipeline
+            # picks it up. Rows already processing/complete/failed are only
+            # reset if the video_url actually changed (new upload from TBA).
+            processing_status=case(
+                # If video_url is changing to a non-null value and the row was
+                # previously complete/failed/null, reset to pending
+                (
+                    and_(
+                        literal(video_url is not None),
+                        or_(
+                            Match.video_url.is_(None),
+                            Match.video_url != video_url,
+                        ),
+                    ),
+                    "pending",
+                ),
+                else_=Match.processing_status,
+            ),
         ),
     ).returning(Match.match_id)
 
