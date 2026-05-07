@@ -203,6 +203,26 @@ def process_match_video_from_url(self: Task, match_id: int) -> dict:
         raise
 
 
+process_match_video_from_url_task: Task = cast(Task, process_match_video_from_url)
+
+
+@celery_app.task(
+    name="auto_video_tasks.queue_pending_video_matches",
+    queue="default",
+    max_retries=1,
+    autoretry_for=(Exception,),
+)
+def queue_pending_video_matches_task() -> dict:
+    """
+    Beat-triggered poll task: find matches with a video_url and
+    processing_status='pending', then dispatch process_match_video_from_url
+    for each. Runs every 2 minutes so new TBA video URLs are picked up quickly
+    after each active-event sync.
+    """
+    queued = queue_pending_video_matches()
+    return {"queued": queued}
+
+
 def queue_pending_video_matches() -> int:
     """
     Find all matches that have a video_url but haven't been processed yet,
@@ -257,8 +277,3 @@ def queue_pending_video_matches() -> int:
 
     logger.info("auto_video: queued %d match(es) for video processing", queued)
     return queued
-
-
-process_match_video_from_url_task: Task = cast(
-    Task, process_match_video_from_url
-)

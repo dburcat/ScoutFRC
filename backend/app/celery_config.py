@@ -31,11 +31,11 @@ worker_prefetch_multiplier = 1  # one task at a time per worker process
 task_default_queue = "default"
 
 task_queues = {
-    "default": {"exchange": "default", "routing_key": "default"},
-    "video": {"exchange": "video", "routing_key": "video"},
+    "default":   {"exchange": "default",   "routing_key": "default"},
+    "video":     {"exchange": "video",     "routing_key": "video"},
     "analytics": {"exchange": "analytics", "routing_key": "analytics"},
-    "sync": {"exchange": "sync", "routing_key": "sync"},
-    "reports": {"exchange": "reports", "routing_key": "reports"},
+    "sync":      {"exchange": "sync",      "routing_key": "sync"},
+    "reports":   {"exchange": "reports",   "routing_key": "reports"},
 }
 
 # ── Retry backoff defaults (tasks can override) ───────────────────────────────
@@ -58,8 +58,42 @@ beat_schedule = {
         "schedule": int(os.getenv("CACHE_REFRESH_INTERVAL_S", "600")),
         "options": {"queue": "default"},
     },
-    # NOTE: TBA sync tasks are intentionally NOT here — APScheduler in the FastAPI
-    # process handles TBA syncing with dynamic intervals based on active events.
-    # Having them in beat_schedule too would cause duplicate syncs hammering TBA.
-    # To use dynamic scheduling, run FastAPI alongside Celery Worker and Beat.
+    # TBA incremental sync for active events (every 2 minutes)
+    "sync-tba-active": {
+        "task": "tba_tasks.sync_tba_data",
+        "schedule": int(os.getenv("TBA_ACTIVE_SYNC_INTERVAL_S", "120")),
+        "options": {"queue": "sync"},
+    },
+    # TBA upcoming events sync (every 30 minutes)
+    "sync-tba-upcoming": {
+        "task": "tba_tasks.sync_upcoming_events",
+        "schedule": int(os.getenv("TBA_UPCOMING_SYNC_INTERVAL_S", "1800")),
+        "options": {"queue": "sync"},
+    },
+    # Season bootstrap — picks up new events added mid-season (every hour)
+    "bootstrap-season": {
+        "task": "tba_tasks.bootstrap_season",
+        "schedule": int(os.getenv("TBA_BOOTSTRAP_INTERVAL_S", "3600")),
+        "options": {"queue": "sync"},
+    },
+    # CV pipeline poller — checks for matches with video_url pending processing (every 2 min)
+    "queue-pending-videos": {
+        "task": "auto_video_tasks.queue_pending_video_matches",
+        "schedule": int(os.getenv("VIDEO_POLL_INTERVAL_S", "120")),
+        "options": {"queue": "default"},
+    },
+    # Prediction cache refresh for active/upcoming events (every 10 minutes)
+    "refresh-predictions": {
+        "task": "prediction_tasks.refresh_active_event_predictions",
+        "schedule": int(os.getenv("PREDICTION_REFRESH_INTERVAL_S", "600")),
+        "options": {"queue": "analytics"},
+    },
+    # Nightly model retrain to incorporate new match data (every 24 hours)
+    "retrain-model": {
+        "task": "prediction_tasks.scheduled_model_retrain",
+        "schedule": int(os.getenv("MODEL_RETRAIN_INTERVAL_S", "86400")),
+        "options": {"queue": "analytics"},
+    },
+    # NOTE: startup_full_sync is intentionally NOT here — it's a one-shot task
+    # triggered manually via the admin endpoint when you need a full historical sync.
 }
