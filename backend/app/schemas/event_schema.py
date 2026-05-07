@@ -1,6 +1,9 @@
 from pydantic import BaseModel, ConfigDict, computed_field
-from typing import Optional, Union
+from typing import Optional, Union, List, TYPE_CHECKING
 from datetime import date, datetime
+
+if TYPE_CHECKING:
+    from .match_schema import Match_schema
 
 
 class EventBase(BaseModel):
@@ -19,36 +22,54 @@ class EventCreate(EventBase):
     pass
 
 
-class Event_schema(EventBase):
+class EventSummary_schema(EventBase):
+    """Lightweight schema for list endpoints — no nested matches.
+    team_count and match_count are injected by the router via SQL COUNT queries,
+    not computed from nested ORM relationships."""
     event_id: int
     created_at: datetime
+    team_count: int = 0
+    match_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
     @computed_field
     @property
     def location(self) -> Optional[str]:
-        """Convenience field: human-readable location string."""
+        parts = [p for p in [self.city, self.state_prov, self.country] if p]
+        return ", ".join(parts) if parts else None
+
+
+class Event_schema(EventBase):
+    """Full schema for single-event detail — includes nested matches."""
+    event_id: int
+    created_at: datetime
+    matches: List["Match_schema"] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def location(self) -> Optional[str]:
         parts = [p for p in [self.city, self.state_prov, self.country] if p]
         return ", ".join(parts) if parts else None
 
     @computed_field
     @property
     def team_count(self) -> int:
-        """Distinct teams that have a RobotPerformance in any match of this event."""
-        try:
-            team_ids = set()
-            for match in self.matches:  # type: ignore[attr-defined]
-                for perf in match.robot_performances:
+        team_ids: set[int] = set()
+        for match in self.matches:
+            for alliance in match.alliances:
+                for perf in alliance.robot_performances:
                     team_ids.add(perf.team_id)
-            return len(team_ids)
-        except AttributeError:
-            return 0
+        return len(team_ids)
 
     @computed_field
     @property
     def match_count(self) -> int:
-        try:
-            return len(self.matches)  # type: ignore[attr-defined]
-        except AttributeError:
-            return 0
+        return len(self.matches)
+
+
+# Resolve forward reference
+from .match_schema import Match_schema  # noqa: E402
+Event_schema.model_rebuild()

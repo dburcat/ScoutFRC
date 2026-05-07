@@ -211,3 +211,122 @@ def sync_tba_data() -> dict:
             pass
 
         raise
+
+
+@celery_app.task(
+    name="tba_tasks.sync_upcoming_events",
+    queue="sync",
+    max_retries=2,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=60,
+)
+def sync_upcoming_events() -> dict:
+    """
+    Sync upcoming events — runs on a slower cadence to pick up roster
+    and schedule changes before competition day (default every 30 min).
+    """
+    logger.info("sync_upcoming_events: starting")
+    
+    from app.integrations.sync_service import sync_event
+    from app.models.event import Event
+    
+    try:
+        today = date.today()
+        soon = today + timedelta(days=7)
+        
+        with SessionLocal() as db:
+            upcoming = (
+                db.query(Event)
+                .filter(Event.start_date > today, Event.start_date <= soon)
+                .all()
+            )
+            
+            synced = 0
+            failed = 0
+            for event in upcoming:
+                try:
+                    sync_event(db, event.tba_event_key)
+                    synced += 1
+                except Exception as exc:
+                    failed += 1
+                    logger.warning("Upcoming sync failed for %s: %s", event.tba_event_key, exc)
+        
+        result = {"events_synced": synced, "events_failed": failed, "status": "complete"}
+        logger.info("sync_upcoming_events: complete %s", result)
+        return result
+    
+    except Exception as exc:
+        logger.error("sync_upcoming_events: task failed: %s", exc)
+        raise
+
+
+@celery_app.task(
+    name="tba_tasks.bootstrap_season",
+    queue="sync",
+    max_retries=2,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=60,
+)
+def bootstrap_season() -> dict:
+    """
+    Bootstrap task: pull the full season event list from TBA.
+    Runs every hour so new events added by FIRST mid-season appear automatically.
+    """
+    from app.integrations.sync_service import sync_season_events
+    from datetime import date
+    
+    logger.info("bootstrap_season: starting for year %d", date.today().year)
+    
+    try:
+        with SessionLocal() as db:
+            result = sync_season_events(db, date.today().year)
+        logger.info("bootstrap_season: complete %s", result)
+        return result
+    except Exception as exc:
+        logger.error("bootstrap_season: task failed: %s", exc)
+        raise
+
+
+@celery_app.task(
+    name="tba_tasks.startup_full_sync",
+    queue="sync",
+    max_retries=1,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=30,
+)
+def startup_full_sync() -> dict:
+    """
+    Startup task: sync all historical data — all teams and events 2009-present.
+    Runs once when the server starts and prepopulates the database.
+    """
+    from app.integrations.sync_service import sync_all_teams, sync_events_for_years
+    from datetime import date
+    
+    current_year = date.today().year
+    logger.info("startup_full_sync: syncing all teams and events 2009-%d", current_year)
+    
+    try:
+        with SessionLocal() as db:
+            # Sync all teams
+            logger.info("startup_full_sync: syncing all registered teams from TBA…")
+            teams_result = sync_all_teams(db)
+            logger.info("startup_full_sync: ✓ Synced %d teams", teams_result.get("teams_synced", 0))
+            
+            # Sync all events
+            logger.info("startup_full_sync: syncing all events 2009-%d from TBA…", current_year)
+            events_result = sync_events_for_years(db, 2009, current_year)
+            logger.info("startup_full_sync: ✓ Synced %d events", events_result.get("events_synced", 0))
+            
+            result = {
+                "teams_synced": teams_result.get("teams_synced", 0),
+                "events_synced": events_result.get("events_synced", 0),
+                "status": "complete",
+            }
+        
+        return result
+    except Exception as exc:
+        logger.error("startup_full_sync: task failed: %s", exc)
+        raise

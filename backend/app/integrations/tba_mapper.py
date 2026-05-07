@@ -54,10 +54,10 @@ def upsert_event(db: Session, tba_event: dict) -> Event:
     event = db.query(Event).filter(Event.tba_event_key == tba_event["key"]).first()
     
     # Truncate fields to fit column constraints (schema doesn't specify max lengths, use reasonable defaults)
-    name = truncate(tba_event.get("name"), 255)
-    city = truncate(tba_event.get("city"), 100)
-    state_prov = truncate(tba_event.get("state_prov"), 60)
-    country = truncate(tba_event.get("country"), 60)
+    name: str = truncate(tba_event.get("name"), 255) or tba_event.get("key", "Unknown Event")
+    city: str | None = truncate(tba_event.get("city"), 100)
+    state_prov: str | None = truncate(tba_event.get("state_prov"), 60)
+    country: str | None = truncate(tba_event.get("country"), 60)
     
     if event:
         # Update existing
@@ -148,41 +148,38 @@ def upsert_match(
         else:
             video_url = v.get("key")
 
-    # Upsert the Match row
-    match = db.query(Match).filter(Match.tba_match_key == tba_match["key"]).first()
     match_number = extract_match_number(tba_match["match_number"])
-    
-    if match:
-        # Update existing
-        match.match_type = match_type
-        match.match_number = match_number
-        match.played_at = played_at
-        match.video_url = video_url
-        db.flush()
-    else:
-        # Create new
-        match = Match(
-            event_id=event.event_id,
-            tba_match_key=tba_match["key"],
+
+    # PostgreSQL native upsert — immune to session state / dirty transaction issues
+    stmt = pg_insert(Match).values(
+        event_id=event.event_id,
+        tba_match_key=tba_match["key"],
+        match_type=match_type,
+        match_number=match_number,
+        played_at=played_at,
+        video_url=video_url,
+        processing_status="pending",
+    ).on_conflict_do_update(
+        index_elements=["tba_match_key"],
+        set_=dict(
             match_type=match_type,
             match_number=match_number,
             played_at=played_at,
             video_url=video_url,
-            processing_status="pending",
-        )
-        db.add(match)
-        db.flush()
+        ),
+    ).returning(Match.match_id)
 
-    # Wipe old alliances/performances so we can re-insert cleanly on re-sync
-    # Explicitly delete robot_performances first to avoid cascade delete issues
-    # Use synchronize_session='fetch' to ensure session is updated after bulk delete
-    db.query(RobotPerformance).filter(RobotPerformance.match_id == match.match_id).delete(synchronize_session='fetch')
-    db.query(Alliance).filter(Alliance.match_id == match.match_id).delete(synchronize_session='fetch')
-    
-    # Clear session cache to ensure no stale references to deleted records
-    # This is critical - without it, SQLAlchemy may still have old objects in memory
-    db.expunge_all()
+    result = db.execute(stmt)
     db.flush()
+    match_id = result.scalar_one()
+
+    # Wipe stale alliances/performances before re-inserting
+    db.query(RobotPerformance).filter(RobotPerformance.match_id == match_id).delete(synchronize_session="fetch")
+    db.query(Alliance).filter(Alliance.match_id == match_id).delete(synchronize_session="fetch")
+    db.flush()
+
+    # Re-fetch the match ORM object so the rest of the function can use match.match_id
+    match = db.query(Match).filter(Match.match_id == match_id).one()
 
     # Build Alliance + RobotPerformance rows
     winning_color = tba_match.get("winning_alliance", "")  # "red", "blue", or ""
@@ -194,13 +191,22 @@ def upsert_match(
         if score == -1:
             score = None  # TBA returns -1 for unplayed matches
 
-        alliance = Alliance(
-            match_id=match.match_id,
-            color=color,
-            total_score=score,
-            won=(color == winning_color) if winning_color else None,
-        )
-        db.add(alliance)
+        # Upsert alliance — handles stale rows from previously failed syncs
+        alliance = db.query(Alliance).filter(
+            Alliance.match_id == match.match_id,
+            Alliance.color == color,
+        ).first()
+        if alliance:
+            alliance.total_score = score
+            alliance.won = (color == winning_color) if winning_color else None
+        else:
+            alliance = Alliance(
+                match_id=match.match_id,
+                color=color,
+                total_score=score,
+                won=(color == winning_color) if winning_color else None,
+            )
+            db.add(alliance)
         db.flush()  # need alliance_id for RobotPerformance FK
 
         team_keys = alliance_data.get("team_keys", [])  # ["frc254", "frc971", "frc1678"]
@@ -230,20 +236,29 @@ def upsert_match(
                 continue
             seen_teams.add(team_id)
 
-            perf = RobotPerformance(
-                match_id=match.match_id,
-                team_id=team_id,
-                alliance_id=alliance.alliance_id,
-                alliance_position=position,
-                auto_score=0,
-                teleop_score=0,
-                endgame_score=0,
-                fouls_drawn=0,
-                fouls_committed=0,
-                no_show=False,
-                disabled=False,
-            )
-            db.add(perf)
+            # Upsert RobotPerformance — handles stale rows from failed syncs
+            perf = db.query(RobotPerformance).filter(
+                RobotPerformance.match_id == match.match_id,
+                RobotPerformance.team_id == team_id,
+            ).first()
+            if perf:
+                perf.alliance_id = alliance.alliance_id
+                perf.alliance_position = position
+            else:
+                perf = RobotPerformance(
+                    match_id=match.match_id,
+                    team_id=team_id,
+                    alliance_id=alliance.alliance_id,
+                    alliance_position=position,
+                    auto_score=0,
+                    teleop_score=0,
+                    endgame_score=0,
+                    fouls_drawn=0,
+                    fouls_committed=0,
+                    no_show=False,
+                    disabled=False,
+                )
+                db.add(perf)
 
     db.flush()
     return match

@@ -1,15 +1,15 @@
 # ScouterFRC Implementation Status Assessment
 
-**Assessment Date:** May 4, 2026 (Updated: Tier 8 Foundation + API Complete)
-**Codebase Version:** Phase 1 Complete + Phase 2 Tier 1-8 Implementation (Field Heatmaps In Progress)
+**Assessment Date:** May 5, 2026 (Updated: Tier 9-10 Substantially Complete)
+**Codebase Version:** Phase 1 Complete + Phase 2 Tier 1-10 Implementation (Predictions & PWA Complete)
 
 ---
 
 ## Executive Summary
 
-ScouterFRC is a comprehensive FRC (FIRST Robotics Competition) scouting and analytics platform. The codebase shows **Phase 1 is substantially complete** (database, API, authentication, frontend scaffolding). **Phase 2 has major progress** on the background daemon architecture, computer vision pipeline, real-time updates, analytics engine, and now interactive field visualization with heatmaps. WebSocket infrastructure is production-ready.
+ScouterFRC is a comprehensive FRC (FIRST Robotics Competition) scouting and analytics platform. The codebase shows **Phase 1 is substantially complete** (database, API, authentication, frontend scaffolding). **Phase 2 has major progress** on the background daemon architecture, computer vision pipeline, real-time updates, analytics engine, ML predictions, and PWA offline support. WebSocket infrastructure is production-ready, and machine learning predictions are operational.
 
-**Overall Status: ~77% complete** — Core functionality exists; Tier 8 foundation complete (API/components created); ML predictions and report generation remain.
+**Overall Status: ~80% complete** — Core functionality exists; Tiers 1-10 substantially implemented; Tier 11 (i18n) and completion of Tier 12 (security hardening) remain.
 
 ---
 
@@ -899,27 +899,237 @@ ScouterFRC is a comprehensive FRC (FIRST Robotics Competition) scouting and anal
 ---
 
 ### Tier 9: Machine Learning Predictions & Match Outcome Forecasting
-**Status: ❌ NOT IMPLEMENTED**
+**Status: ✅ SUBSTANTIALLY COMPLETE**
 
-**Missing:**
-- No ML models for predictions
-- No outcome forecasting
-- No team strength ratings
+**Implemented:**
+
+#### Team Strength Scoring
+- **Weighted composite score** (0-100 scale):
+  - Auto contribution: 35% weight (max 20 pts)
+  - Teleop contribution: 40% weight (max 60 pts)
+  - Endgame contribution: 15% weight (max 20 pts)
+  - Win rate contribution: 10% weight
+- **Confidence levels** based on sample size:
+  - HIGH: ≥ 6 matches
+  - MEDIUM: 3-5 matches
+  - LOW: ≤ 2 matches
+- Pure function calculation in `compute_team_strength()` (no DB I/O)
+
+#### Match Outcome Prediction
+- **Model type**: GradientBoostingClassifier (scikit-learn)
+  - Binary classification: red alliance wins vs. blue alliance wins
+  - Trained on historical match outcomes + phase stats
+  - Handles small datasets typical of FRC (~60-100 qual matches per event)
+- **Feature engineering**:
+  - Alliance feature vector: auto/teleop/endgame scores, distances, velocities
+  - Time in scoring zones, win rates, matches played (per team × 3)
+  - Fixed-length vector with zero-padding for incomplete alliances
+- **Predictions include**:
+  - Red/blue win probability (0.0-1.0)
+  - Predicted score ranges (90% confidence interval)
+  - Confidence level (high/medium/low based on predict_proba spread)
+  - Fallback to heuristic when model unavailable
+- **Model persistence**: Saved to `backend/models/predictor.pkl` via joblib
+  - Configurable path via `PREDICTOR_MODEL_PATH` env var
+
+#### API Endpoints (`app/routers/predictions.py`)
+- `GET /predictions/matches/{match_id}`
+  - Returns win probability, predicted scores, confidence
+  - Cache-first with live fallback
+- `GET /predictions/events/{event_id}`
+  - Returns all match predictions for an event
+  - Cache-backed batch results
+- `GET /predictions/teams/{team_id}/strength`
+  - Returns team strength score with contribution breakdown
+  - Optional event_id filter
+- `GET /predictions/events/{event_id}/rankings`
+  - Teams sorted by strength score
+- `GET /predictions/events/{event_id}/alliance-recommendations/{team_id}`
+  - Candidate picks ranked by projected alliance score
+  - Coverage notes for gap analysis
+- `POST /predictions/events/{event_id}/compute` (auth required)
+  - Trigger batch prediction Celery task
+  - Returns task_id for polling
+- `POST /predictions/train` (SYSTEM_ADMIN only)
+  - Trigger model training on historical data
+- `GET /predictions/model/status`
+  - Returns model availability, path, size
+
+#### Celery Tasks (`app/tasks/prediction_tasks.py`)
+- **`train_prediction_model`** (queued on `analytics` queue)
+  - Pulls all PhaseStat + Alliance win/loss data
+  - Builds feature matrix and labels
+  - Trains GradientBoostingClassifier
+  - Saves model artifact with joblib
+  - Triggered after every N matches or manually
+  - Returns training accuracy, feature importances
+
+- **`run_batch_predictions`** (queued on `analytics` queue)
+  - For all upcoming (unplayed) matches in an event
+  - Computes predictions and caches in Redis (10-min TTL)
+  - Enables instant API reads
+  - Handles model unavailable gracefully
+
+#### Caching
+- Cache keys:
+  - `prediction:match:{match_id}` (10 min TTL)
+  - `prediction:strength:{team_id}` (15 min TTL)
+  - `prediction:event:{event_id}` (10 min TTL)
+- Cache invalidation on new matches/outcomes
+- Falls back to live computation if cache is cold
+
+#### Integration
+- Predictor service is pure (no DB I/O) for testability
+- Team stats fetched on-demand from PhaseStat + RobotPerformance
+- Model training decoupled via Celery tasks
+- Confidence-aware UI hints based on prediction confidence
+
+**Caveats:**
+- Model training not triggered automatically (must call `POST /predictions/train`)
+- Accuracy metrics not exposed in API (available in task logs)
+- Feature engineering assumes FRC 2024 Crescendo timing (auto/teleop/endgame)
+- No per-season model retraining workflow yet
+
+**Acceptance Criteria Status:**
+- ✅ Team strength scores computed correctly
+- ✅ GradientBoostingClassifier trained on historical data
+- ✅ Match predictions include win probability and score ranges
+- ✅ Alliance recommendations ranked by projected score
+- ✅ Predictions cached in Redis
+- ✅ Model persisted to disk
+- ✅ API endpoints return proper schema
+- ✅ Celery tasks for training and batch predictions
+- ⚠️ Model training not auto-triggered
+- ⚠️ No cross-validation metrics exposed
 
 ---
 
 ### Tier 10: Mobile PWA & Offline Sync
-**Status: ⚠️ PARTIAL**
+**Status: ✅ SUBSTANTIALLY COMPLETE**
 
 **Implemented:**
-- React frontend with standard PWA structure
-- Tailwind CSS responsive design
 
-**Missing:**
-- Service Worker registration
-- Offline data persistence
-- Sync queue for offline updates
-- PWA manifest configuration
+#### PWA Configuration
+- **vite-plugin-pwa** integration (`frontend/vite.config.ts`)
+  - Auto-update mode for new versions
+  - Manifest auto-generation
+  - Workbox runtime caching configuration
+  - Dev mode disabled (production-only)
+
+- **Service Worker Registration** (`frontend/src/main.tsx`)
+  - Registers `/sw.js` at app load (deferred after page load)
+  - Auto-update: detects new SW and prompts user
+  - SKIP_WAITING for immediate activation
+  - Graceful fallback if registration fails
+
+- **Web App Manifest** (`frontend/public/manifest.json`)
+  - Standalone display mode
+  - Theme colors (#3b82f6 primary, #0f1117 background)
+  - Icons: 192×192 and 512×512 (maskable for adaptive icons)
+  - Shortcuts for "Scout a Match" quick action
+  - Categories: sports, utilities
+
+#### Offline-First Data Persistence
+- **IndexedDB Storage** (`frontend/src/services/offlineQueue.ts`)
+  - Database: `scouterfrc` (v1)
+  - Object store: `offline_observations` (auto-increment keys)
+  - Schema: id, payload, createdAt, status, attempts, error
+  - Indexes: status, createdAt (for efficient queries)
+  - Max retry attempts: 3 per item
+
+- **Queue Item Lifecycle**
+  - Status: 'pending' → 'syncing' → (success: deleted | failure: 'failed')
+  - Created with timestamp when offline
+  - Auto-incremented ID on insert
+  - Retryable failed items tracked with attempt count
+
+- **Public API** (`offlineQueue.ts`)
+  - `enqueue(payload)` — Add observation to queue
+  - `getAllItems()` — Fetch all items (newest first)
+  - `getPendingItems()` — Get pending + retryable items
+  - `getPendingCount()` — Count of items to sync
+  - `markSyncing(id)` — Mark as currently syncing
+  - `markSynced(id)` — Remove after successful sync
+  - `markFailed(id, error)` — Increment attempt, store error
+  - `removeItem(id)` — Manual dismissal
+  - `clearQueue()` — Reset (tests/admin)
+
+#### Offline Queue Hook (`frontend/src/hooks/useOfflineQueue.ts`)
+- **Auto-sync on connectivity change**
+  - Detects online/offline transitions
+  - Drains queue when online restored
+  - Retries failed items up to MAX_ATTEMPTS
+  - Exponential backoff between retries
+
+- **State Management**
+  - Pending count, syncing status, last error
+  - Manual retry trigger
+  - Callbacks for sync completion
+
+#### Network Status Hooks
+- `useNetworkStatus()` — Boolean online/offline state
+- `useSyncStatus()` — Detailed sync queue status
+- Used in `MobileScoutPage.tsx` for UI indicators
+
+#### Runtime Caching Strategy (Workbox)
+- **Cache-First (static assets)**
+  - Google Fonts (365-day expiry, 10 max)
+  - GStatic fonts (365-day expiry, 10 max)
+  - Reduces font loading latency
+
+- **Network-First (API calls)**
+  - Pattern: `/api/*` or `localhost:8000`
+  - 5-second network timeout
+  - Falls back to 5-min cached API response
+  - Caches up to 100 responses
+  - Enables offline dashboard view
+
+- **Asset Caching**
+  - Glob pattern: `**/*.{js,css,html,ico,png,svg,woff2}`
+  - Browser handles versioning (Vite hash)
+  - Automatic cache bust on new app version
+
+#### Mobile UI Integration
+- **MobileScoutPage.tsx**
+  - Uses `useOfflineQueue` hook
+  - Shows offline/syncing indicators
+  - Form persists to IndexedDB if offline
+  - Auto-syncs when online restored
+  - Error display for failed items
+
+- **Responsive Design**
+  - Tailwind CSS mobile-first
+  - Touch-friendly form controls
+  - Viewport meta tags for mobile
+  - Landscape orientation support
+
+#### Testing & Documentation
+- IndexedDB integration tested via browser DevTools
+- Service Worker debugging in Chrome DevTools → Application tab
+- Offline simulation via DevTools Network tab (throttle to "Offline")
+- Manual testing of sync queue drain on reconnect
+
+**Caveats:**
+- Model training not triggered automatically (must call endpoint)
+- No conflict resolution for simultaneous edits offline + online
+- Service worker updates require page reload
+- IndexedDB quota varies by browser (typically 50MB+)
+- Offline observations sent one-at-a-time (no batching)
+- No background sync API fallback (requires manual retry)
+
+**Acceptance Criteria Status:**
+- ✅ Service worker registers and caches assets
+- ✅ App installable on mobile (manifest + icons)
+- ✅ IndexedDB persists observations offline
+- ✅ Auto-sync drains queue when online
+- ✅ Failed items retried up to 3 attempts
+- ✅ Workbox runtime caching for API fallback
+- ✅ Network status detection works
+- ✅ React hooks for offline queue management
+- ✅ MobileScoutPage demonstrates full integration
+- ⚠️ No conflict resolution for offline edits
+- ⚠️ Background sync API not implemented (SyncManager)
+- ⚠️ No data encryption in IndexedDB (browser's responsibility)
 
 ---
 
@@ -985,11 +1195,11 @@ ScouterFRC is a comprehensive FRC (FIRST Robotics Competition) scouting and anal
 | 6 | Report Generation & Distribution | ⚠️ Partial | 50% |
 | 7 | Real-time Notifications | ✅ Substantial | 95% |
 | 8 | Field Heatmaps & Visualization | 🔄 In Progress | 35% |
-| 9 | ML Predictions & Forecasting | ❌ Not Started | 0% |
-| 10 | Mobile PWA & Offline Sync | ⚠️ Partial | 30% |
+| 9 | ML Predictions & Forecasting | ✅ Substantial | 85% |
+| 10 | Mobile PWA & Offline Sync | ✅ Substantial | 85% |
 | 11 | Internationalization (i18n) | ❌ Not Started | 0% |
 | 12 | Security Hardening | ⚠️ Partial | 50% |
-| **PHASE 2 TOTAL** | | **✅ STARTED** | **~62%** |
+| **PHASE 2 TOTAL** | | **✅ STARTED** | **~73%** |
 
 ---
 
@@ -1027,90 +1237,107 @@ ScouterFRC is a comprehensive FRC (FIRST Robotics Competition) scouting and anal
 
 ### High Priority (Block MVP)
 
-1. **Report Generation Logic**:
+1. **Report Generation Logic** (Tier 6):
    - Template rendering not found
    - File storage mechanism unclear
    - Email distribution not implemented
 
 2. **Frontend Component Library**:
-   - `components/` folder empty
+   - `components/` folder mostly empty
    - Reusable components not extracted
    - UI consistency tools missing
 
-3. **Video Processing Edge Cases**:
-   - Multi-frame voting for team ID resolution not fully tested
-   - S3 integration not implemented (local disk only)
-   - GPU support conditional
-
-4. **Missing API Endpoints**:
-   - Manual report generation triggering
-   - Detailed sync progress reporting
-   - Team color profile management
-   - Full admin panel
+3. **Tier 8 Completion** (Field Heatmaps):
+   - E2E integration testing needed
+   - Performance optimization for large matches
+   - PNG export functionality
+   - WebSocket streaming for live updates
 
 ### Medium Priority (Enhance User Experience)
 
-1. **Real-time Updates**:
-   - ✅ WebSocket support (IMPLEMENTED - Tier 7)
-   - ✅ Live task progress streaming (IMPLEMENTED - Tier 7)
-   - ✅ Dashboard updating in real-time (IMPLEMENTED - Tier 7)
+1. **Model Training Automation**:
+   - Training not triggered automatically on new match data
+   - No retraining schedule
+   - Accuracy metrics not exposed in API
 
-2. **Visualization**:
-   - ✅ Field heatmaps (FOUNDATION COMPLETE - Tier 8)
-   - ✅ Movement replay/trajectory visualization (COMPONENTS CREATED - Tier 8)
-   - ⏳ Integration testing and performance optimization (pending)
+2. **Offline Sync Improvements**:
+   - No conflict resolution for simultaneous offline + online edits
+   - Background Sync API (SyncManager) not implemented
+   - No batching of offline requests
 
-3. **Mobile/PWA**:
-   - Service Worker not implemented
-   - Offline sync not implemented
+3. **Security Hardening** (Tier 12):
+   - Rate limiting not implemented
+   - CSRF protection not configured
+   - Security headers (X-Frame-Options, CSP) missing
+   - Audit logging not implemented
+   - Data encryption at rest not configured
 
 ### Low Priority (Nice-to-Have)
 
-1. **ML/Predictions**:
-   - Match outcome forecasting not started
-   - Team strength ratings not implemented
-
-2. **Internationalization**:
+1. **Internationalization** (Tier 11):
    - No i18n framework
+   - No translations
 
-3. **Advanced Security**:
-   - Rate limiting not implemented
-   - Audit logging not implemented
-   - Data encryption at rest not configured
+2. **Advanced PWA**:
+   - Data encryption in IndexedDB (browser responsibility)
+   - Push notifications not implemented
+   - Periodic background sync (SyncManager API)
 
 ---
 
 ## Recommendations for Next Steps
 
-### Phase 1 Completion (1-2 weeks)
-1. Extract reusable frontend components
-2. Complete admin dashboard UI
-3. Implement manual user/team creation endpoints
-4. Add comprehensive error boundaries in React
+### Phase 2 Completion (2-3 weeks)
 
-### Phase 2 Immediate Priorities (2-3 weeks)
-1. **Implement missing report generation**:
-   - Add template rendering service (Jinja2 or similar)
-   - Implement PDF generation (reportlab or weasyprint)
+1. **Complete Tier 8 (Field Heatmaps)**:
+   - E2E integration testing with live data
+   - Performance optimization for dense trajectories
+   - PNG export functionality
+   - WebSocket real-time updates during matches
+
+2. **Finish Report Generation (Tier 6)**:
+   - Implement template rendering (Jinja2 or similar)
+   - Add PDF generation (reportlab or weasyprint)
    - Configure file storage (S3 or local cache)
-   - Test email delivery
+   - Implement email delivery
 
-2. **Complete video processing**:
-   - Implement S3 integration
-   - Test multi-frame voting logic
-   - Add calibration UI for perspective matrix
-   - Implement color profile management
+3. **Complete Tier 12 (Security Hardening)**:
+   - Add rate limiting on API endpoints
+   - Implement CSRF protection
+   - Configure security headers (CSP, X-Frame-Options)
+   - Add audit logging for sensitive operations
+   - Data encryption for sensitive fields
 
-3. **Add WebSocket support**:
-   - Implement real-time task progress
-   - Add live dashboard updates
-   - Consider using `fastapi-socketio` or native WebSocket
+4. **Polish & Integration**:
+   - Extract reusable frontend components
+   - End-to-end testing for full workflows
+   - Performance profiling and optimization
+   - Error boundary improvements
 
-### Phase 2 Extended (4-6 weeks)
-1. Field heatmap visualization
-2. Movement trajectory replay
-3. ML-based predictions
-4. Mobile PWA offline sync
+### Phase 3 Prep (3-4 weeks)
+
+1. **ML Model Improvements**:
+   - Auto-trigger training on new match data
+   - Cross-validation and accuracy metrics
+   - Feature importance visualization
+   - Model versioning and rollback
+
+2. **Offline-First Enhancements**:
+   - Conflict resolution for simultaneous edits
+   - Batch sync for better performance
+   - Data encryption in IndexedDB
+   - Push notifications via Web Push API
+
+3. **Admin Dashboard**:
+   - System health monitoring
+   - Model training status
+   - Cache hit/miss metrics
+   - User analytics
+
+4. **Internationalization**:
+   - i18n framework setup (react-i18next)
+   - Language selector component
+   - Translation files for main workflows
 
 ---
 
@@ -1160,6 +1387,6 @@ ScouterFRC is a comprehensive FRC (FIRST Robotics Competition) scouting and anal
 
 ## Conclusion
 
-ScouterFRC is a well-architected, feature-rich platform with a **solid Phase 1 foundation** and **promising Phase 2 implementation**. The computer vision pipeline and background daemon architecture are substantially complete, though some high-value features (report generation, real-time updates) remain incomplete. With focused effort on the gaps identified above, the platform can reach MVP status in 3-4 weeks and production readiness in 6-8 weeks.
+ScouterFRC is a well-architected, feature-rich platform with a **solid Phase 1 foundation** and **substantial Phase 2 implementation**. The computer vision pipeline, background daemon architecture, real-time updates, machine learning predictions, and PWA offline support are all substantially complete. The platform now includes automated match outcome forecasting, team strength scoring, and mobile-first offline scouting capabilities. With focused effort on the remaining gaps (report generation, Tier 8 completion, security hardening), the platform can reach MVP status in 2-3 weeks and production readiness in 4-6 weeks.
 
-**Overall Implementation Status: ~70% Complete** (Phase 1: ~92%, Phase 2: ~50%)
+**Overall Implementation Status: ~80% Complete** (Phase 1: ~92%, Phase 2: ~73%)

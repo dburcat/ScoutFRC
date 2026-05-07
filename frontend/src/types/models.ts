@@ -62,7 +62,8 @@ export interface Match {
   processing_status: 'pending' | 'processing' | 'complete' | 'failed';
   played_at: string | null;
   created_at: string;
-  alliances: Alliance[];
+  alliances: Alliance[]; // may be [] before alliances are synced — always guard with optional chaining or .find()
+  robot_performances?: RobotPerformance[]; // top-level convenience field, may be absent
 }
 
 export interface SyncResult {

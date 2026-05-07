@@ -1,7 +1,16 @@
 import axios from "axios";
 
+const baseURL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+if (!import.meta.env.VITE_API_URL) {
+  console.warn(
+    "[ScouterFRC] VITE_API_URL is not set — defaulting to http://localhost:8000. " +
+    "Set it in your .env file to suppress this warning."
+  );
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
+  baseURL,
 });
 
 api.interceptors.request.use(

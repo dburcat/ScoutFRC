@@ -44,6 +44,10 @@ origins = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",   # Vite sometimes uses 5174 if 5173 is taken
+    "http://localhost:3000",   # CRA / other dev servers
+    "http://localhost:4173",   # Vite preview
 ]
 
 app.add_middleware(

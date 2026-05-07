@@ -1,12 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import api from '@/api/client'; // Ensure your @ alias is set up
+import api from '@/api/client';
 import { User, AuthResponse } from '@/types/auth';
 
 interface AuthContextType {
   user: User | null;
   login: (data: AuthResponse) => Promise<void>;
   logout: () => void;
-  isLoading: boolean; // Changed to camelCase
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -14,23 +14,32 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   useEffect(() => {
     const checkUser = async () => {
-      // Must match the key used in axios.ts
-      const token = localStorage.getItem('token'); 
-      if (token) {
-        try {
-          const response = await api.get<User>('/me'); // Specify the return type
-          setUser(response.data);
-        } catch (error) {
-          localStorage.removeItem('token');
-          setUser(null);
-        }
+      const token = localStorage.getItem('token');
+      if (!token) {
+        // No token — skip the network call entirely, resolve immediately
+        setIsLoading(false);
+        return;
       }
-      setIsLoading(false);
+      try {
+        const response = await api.get<User>('/me');
+        setUser(response.data);
+      } catch {
+        localStorage.removeItem('token');
+        setUser(null);
+      } finally {
+        // Always resolve, even if the request hangs or errors
+        setIsLoading(false);
+      }
     };
-    checkUser();
+
+    // Safety net: if /me never responds, unblock the app after 5s
+    const timeout = setTimeout(() => setIsLoading(false), 5000);
+    checkUser().then(() => clearTimeout(timeout));
+
+    return () => clearTimeout(timeout);
   }, []);
 
   const login = async (data: AuthResponse) => {
@@ -42,8 +51,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = () => {
     localStorage.removeItem('token');
     setUser(null);
-    // Optional: redirect to login
-    // window.location.href = '/login'; 
   };
 
   return (

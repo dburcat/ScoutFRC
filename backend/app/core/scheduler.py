@@ -1,6 +1,12 @@
 # backend/app/core/scheduler.py
 """
-APScheduler setup for automatic TBA syncing.
+APScheduler setup for automatic task dispatch to Celery workers.
+
+Architecture:
+  - APScheduler runs in the FastAPI process (AsyncIOScheduler)
+  - All sync/processing jobs dispatch Celery tasks to worker queues
+  - Celery workers pick up and execute tasks from Redis queues
+  - Sync strategy dynamically adjusts poll frequency based on event calendar
 
 Sync strategy:
   - Active events (today falls between start_date and end_date):
@@ -9,9 +15,6 @@ Sync strategy:
       every 30 minutes — rosters/schedules sometimes update pre-event
   - Off-season (no active/upcoming events):
       every 6 hours    — keeps historical data fresh without hammering TBA
-
-The scheduler runs in the same process as FastAPI using AsyncIOScheduler,
-so no extra workers or queues are needed.
 """
 from __future__ import annotations
 
@@ -22,19 +25,12 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.db.session import SessionLocal
-from app.integrations.sync_service import (
-    sync_all_active_events,
-    sync_season_events,
-    sync_all_teams,
-    sync_events_for_years,
-)
 from app.models.event import Event
+from app.tasks.auto_video_tasks import queue_pending_video_matches
 
 logger = logging.getLogger(__name__)
 
 _scheduler = AsyncIOScheduler(timezone="UTC")
-
-CURRENT_YEAR = date.today().year
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -65,67 +61,61 @@ def _has_upcoming_events(days: int = 7) -> bool:
 # ── Job functions ─────────────────────────────────────────────────────────────
 
 def _job_sync_active() -> None:
-    """Sync all events that are live right now."""
-    logger.debug("Scheduler: syncing active events")
-    with SessionLocal() as db:
-        results = sync_all_active_events(db)
-    synced = [r for r in results if not r.get("skipped")]
-    if synced:
-        logger.info("Scheduler: synced %d active event(s)", len(synced))
+    """Dispatch active event sync to Celery worker."""
+    from app.tasks.tba_tasks import sync_tba_data
+    logger.debug("Scheduler: dispatching sync_tba_data to Celery worker")
+    try:
+        result = sync_tba_data.apply_async(queue="sync")  # type: ignore[union-attr]
+        logger.info("Scheduler: sync_tba_data dispatched (task_id=%s)", result.id)
+    except Exception as exc:
+        logger.warning("Scheduler: failed to dispatch sync_tba_data: %s", exc)
+
+
+def _job_auto_video() -> None:
+    """
+    After each active-event sync, dispatch video processing for matches
+    that now have a video_url but haven't been processed yet.
+    """
+    logger.debug("Scheduler: checking for pending match videos to queue")
+    try:
+        queued = queue_pending_video_matches()
+        if queued:
+            logger.info("Scheduler: queued %d match video(s) for CV processing", queued)
+    except Exception as exc:
+        logger.warning("Scheduler: auto-video queue failed: %s", exc)
 
 
 def _job_sync_upcoming() -> None:
-    """
-    Sync upcoming events — runs on a slower cadence to pick up roster
-    and schedule changes before competition day.
-    """
-    today = date.today()
-    soon = today + timedelta(days=7)
-    logger.debug("Scheduler: syncing upcoming events")
-    with SessionLocal() as db:
-        upcoming = (
-            db.query(Event)
-            .filter(Event.start_date > today, Event.start_date <= soon)
-            .all()
-        )
-        for event in upcoming:
-            try:
-                from app.integrations.sync_service import sync_event
-                sync_event(db, event.tba_event_key)
-            except Exception as exc:
-                logger.warning("Upcoming sync failed for %s: %s", event.tba_event_key, exc)
+    """Dispatch upcoming events sync to Celery worker."""
+    from app.tasks.tba_tasks import sync_upcoming_events
+    logger.debug("Scheduler: dispatching sync_upcoming_events to Celery worker")
+    try:
+        result = sync_upcoming_events.apply_async(queue="sync")  # type: ignore[union-attr]
+        logger.info("Scheduler: sync_upcoming_events dispatched (task_id=%s)", result.id)
+    except Exception as exc:
+        logger.warning("Scheduler: failed to dispatch sync_upcoming_events: %s", exc)
 
 
 def _job_bootstrap_season() -> None:
-    """
-    Pull the full season event list from TBA. Runs once an hour so new
-    events added by FIRST mid-season appear automatically.
-    """
-    logger.debug("Scheduler: bootstrapping season %d", CURRENT_YEAR)
-    with SessionLocal() as db:
-        sync_season_events(db, CURRENT_YEAR)
+    """Dispatch season bootstrap to Celery worker."""
+    from app.tasks.tba_tasks import bootstrap_season
+    logger.debug("Scheduler: dispatching bootstrap_season to Celery worker")
+    try:
+        result = bootstrap_season.apply_async(queue="sync")  # type: ignore[union-attr]
+        logger.info("Scheduler: bootstrap_season dispatched (task_id=%s)", result.id)
+    except Exception as exc:
+        logger.warning("Scheduler: failed to dispatch bootstrap_season: %s", exc)
 
 
 def _job_startup_full_sync() -> None:
-    """
-    On startup, sync all historical data: all teams and events 2009-present.
-    This happens once when the server starts and prepopulates the database.
-    """
-    logger.info("Scheduler: startup full sync — syncing all teams and events")
-    with SessionLocal() as db:
-        try:
-            logger.info("Syncing all registered teams from TBA…")
-            teams_result = sync_all_teams(db)
-            logger.info("✓ Synced %d teams", teams_result["teams_synced"])
-        except Exception as exc:
-            logger.warning("Startup teams sync failed: %s", exc)
-        
-        try:
-            logger.info("Syncing all events 2009-%d from TBA…", CURRENT_YEAR)
-            events_result = sync_events_for_years(db, 2009, CURRENT_YEAR)
-            logger.info("✓ Synced %d events", events_result["events_synced"])
-        except Exception as exc:
-            logger.warning("Startup events sync failed: %s", exc)
+    """Dispatch full startup sync to Celery worker."""
+    from app.tasks.tba_tasks import startup_full_sync
+    logger.info("Scheduler: dispatching startup_full_sync to Celery worker")
+    try:
+        result = startup_full_sync.apply_async(queue="sync")  # type: ignore[union-attr]
+        logger.info("Scheduler: startup_full_sync dispatched (task_id=%s)", result.id)
+    except Exception as exc:
+        logger.warning("Scheduler: failed to dispatch startup_full_sync: %s", exc)
 
 
 def _job_dynamic_reschedule() -> None:
@@ -165,7 +155,7 @@ def _reschedule(job_id: str, **interval_kwargs: int) -> None:
 # ── Dev flag ──────────────────────────────────────────────────────────────────
 # Set to True when you're ready to re-enable automatic TBA syncing.
 # All sync logic/jobs below are preserved; this just stops them from running.
-AUTOSYNC_ENABLED = False
+AUTOSYNC_ENABLED = True
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -182,56 +172,75 @@ def start_scheduler() -> None:
     if _scheduler.running:
         return
 
-    # Schedule startup sync to run immediately but asynchronously (doesn't block startup)
-    _scheduler.add_job(
-        _job_startup_full_sync,
-        trigger="date",  # Run once at a specific moment
-        run_date=None,   # Default to "right now"
-        id="startup_sync",
-        name="Startup full sync",
-    )
+    try:
+        # NOTE: Full startup sync is commented out because:
+        # 1. It takes ~10 minutes to complete (syncs all 9k+ teams & 200+ events)
+        # 2. Dynamic TBA syncing (sync_tba_data) keeps data fresh automatically
+        # 3. Uncomment only if you need a full historical sync on server restart
+        #
+        # _scheduler.add_job(
+        #     _job_startup_full_sync,
+        #     trigger="date",
+        #     run_date=None,
+        #     id="startup_sync",
+        #     name="Startup full sync",
+        # )
 
-    # Active-event sync — starts at 2-min cadence, dynamic reschedule adjusts it
-    _scheduler.add_job(
-        _job_sync_active,
-        trigger=IntervalTrigger(minutes=2),
-        id="sync_active",
-        name="Sync active events",
-        replace_existing=True,
-        misfire_grace_time=30,
-    )
+        # Active-event sync — starts at 2-min cadence, dynamic reschedule adjusts it
+        _scheduler.add_job(
+            _job_sync_active,
+            trigger=IntervalTrigger(minutes=2),
+            id="sync_active",
+            name="Sync active events",
+            replace_existing=True,
+            misfire_grace_time=30,
+        )
 
-    # Upcoming-event sync — every 30 minutes
-    _scheduler.add_job(
-        _job_sync_upcoming,
-        trigger=IntervalTrigger(minutes=30),
-        id="sync_upcoming",
-        name="Sync upcoming events",
-        replace_existing=True,
-        misfire_grace_time=120,
-    )
+        # Auto video processing — runs every 2 minutes, checking for new match videos
+        # Only dispatches work when matches have video_url and are still pending
+        _scheduler.add_job(
+            _job_auto_video,
+            trigger=IntervalTrigger(minutes=2),
+            id="auto_video",
+            name="Auto video processing",
+            replace_existing=True,
+            misfire_grace_time=60,
+        )
 
-    # Season bootstrap — every hour
-    _scheduler.add_job(
-        _job_bootstrap_season,
-        trigger=IntervalTrigger(hours=1),
-        id="bootstrap_season",
-        name="Bootstrap season events",
-        replace_existing=True,
-        misfire_grace_time=300,
-    )
+        # Upcoming-event sync — every 30 minutes
+        _scheduler.add_job(
+            _job_sync_upcoming,
+            trigger=IntervalTrigger(minutes=30),
+            id="sync_upcoming",
+            name="Sync upcoming events",
+            replace_existing=True,
+            misfire_grace_time=120,
+        )
 
-    # Dynamic reschedule check — every minute
-    _scheduler.add_job(
-        _job_dynamic_reschedule,
-        trigger=IntervalTrigger(minutes=1),
-        id="dynamic_reschedule",
-        name="Dynamic interval tuner",
-        replace_existing=True,
-    )
+        # Season bootstrap — every hour
+        _scheduler.add_job(
+            _job_bootstrap_season,
+            trigger=IntervalTrigger(hours=1),
+            id="bootstrap_season",
+            name="Bootstrap season events",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
 
-    _scheduler.start()
-    logger.info("Scheduler started — %d jobs registered", len(_scheduler.get_jobs()))
+        # Dynamic reschedule check — every minute
+        _scheduler.add_job(
+            _job_dynamic_reschedule,
+            trigger=IntervalTrigger(minutes=1),
+            id="dynamic_reschedule",
+            name="Dynamic interval tuner",
+            replace_existing=True,
+        )
+
+        _scheduler.start()
+        job_count = len(_scheduler.get_jobs())
+        logger.info("Scheduler started — %d jobs registered (excluding startup_full_sync)", job_count)
+    except Exception as exc:
+        logger.error("Scheduler startup failed: %s", exc, exc_info=True)
 
 
 def stop_scheduler() -> None:

@@ -4,6 +4,7 @@ uvicorn>=0.27.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
 starlette>=1.0.0
+python-multipart>=0.0.6  # Required for form data in FastAPI
 
 # Database
 sqlalchemy==2.0.23

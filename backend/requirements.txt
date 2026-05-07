@@ -1,0 +1,42 @@
+# Core Framework
+fastapi>=0.115.0
+uvicorn>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+starlette>=1.0.0
+
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.12.1
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Utilities
+python-jose==3.4.0
+passlib==1.7.4
+bcrypt==4.1.1
+
+# Development
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+apscheduler==3.10.4
+# Celery & Redis (Phase 2 — background tasks)
+celery[redis]>=5.3.6
+redis>=5.0.1
+flower>=2.0.1
+
+# Computer Vision (Phase 2 Tier 2)
+ultralytics>=8.0.0
+deep-sort-realtime>=1.3.2
+easyocr>=1.6.0
+opencv-python-headless>=4.8.0
+torch>=2.0.0
+torchvision>=0.15.0
+# Machine Learning (Phase 2 Tier 9 — Performance Prediction)
+scikit-learn>=1.4.0
+pandas>=2.2.0
+joblib>=1.3.0
+yt-dlp>=2024.1.0
