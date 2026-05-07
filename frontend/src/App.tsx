@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
@@ -17,6 +17,8 @@ import ObservationsPage from '@/pages/ObservationsPage';
 import EventAnalyticsPage from '@/pages/EventAnalyticsPage';
 import MobileScoutPage from '@/pages/MobileScoutPage';
 
+// Routes that require a logged-in user
+const PROTECTED_PATHS = ['/alliance', '/observations/new'];
 
 function AppShell() {
   const queryClient = useQueryClient();
@@ -24,11 +26,18 @@ function AppShell() {
 
   const syncStatus = useSyncStatus();
 
-  if (syncStatus.data && syncStatus.data.events_count > 0 && syncStatus.data.teams_count > 0) {
-    queryClient.invalidateQueries({ queryKey: ['events'] });
-    queryClient.invalidateQueries({ queryKey: ['teams'] });
-    queryClient.invalidateQueries({ queryKey: ['matches'] });
-  }
+  // Only invalidate queries when last_sync timestamp actually changes —
+  // prevents flooding the app with refetches on every 3s poll tick
+  const lastSyncRef = useRef<string | null>(null);
+  useEffect(() => {
+    const newSync = syncStatus.data?.last_sync ?? null;
+    if (newSync && newSync !== lastSyncRef.current) {
+      lastSyncRef.current = newSync;
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+    }
+  }, [syncStatus.data?.last_sync, queryClient]);
 
   // Listen for offline queue sync completions and show a toast
   useEffect(() => {

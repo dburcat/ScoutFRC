@@ -105,22 +105,20 @@ def _build_event_summary(db, event_id: int) -> dict:
 
 
 def _build_alliance_projection(db, alliance_id: int) -> dict:
-    """Compute projected performance metrics for an alliance."""
-    from app.models.alliance import Alliance
+    """Compute projected performance metrics for a user-built alliance."""
     from app.models.user_alliance import UserAlliance
     from app.models.phase_stat import PhaseStat
     from sqlalchemy import func
 
-    alliance = db.query(Alliance).filter(Alliance.alliance_id == alliance_id).first()
-    if not alliance:
+    ua = db.query(UserAlliance).filter(UserAlliance.alliance_id == alliance_id).first()
+    if not ua:
         return {}
 
-    # Aggregate phase stats for all teams linked to this alliance
-    team_ids = [
-        ua.team_id for ua in
-        db.query(UserAlliance).filter(UserAlliance.alliance_id == alliance_id).all()
-        if ua.team_id is not None
-    ]
+    # UserAlliance stores comma-separated team IDs in red_teams / blue_teams
+    def _parse_ids(s: str) -> list[int]:
+        return [int(x) for x in s.split(",") if x.strip().isdigit()]
+
+    team_ids = _parse_ids(ua.red_teams or "") + _parse_ids(ua.blue_teams or "")
 
     if not team_ids:
         return {"alliance_id": alliance_id, "team_count": 0, "projected_score": 0.0}
@@ -136,6 +134,7 @@ def _build_alliance_projection(db, alliance_id: int) -> dict:
 
     return {
         "alliance_id": alliance_id,
+        "name": ua.name,
         "team_count": len(team_ids),
         "projected_score": round(float(stats.avg_score or 0) * len(team_ids), 2),
         "avg_team_distance_ft": round(float(stats.avg_distance or 0), 2),
@@ -147,7 +146,6 @@ def _build_alliance_projection(db, alliance_id: int) -> dict:
 def _do_refresh(db) -> dict:
     """Run full cache refresh. Returns summary dict."""
     from app.models.event import Event
-    from app.models.alliance import Alliance
     from datetime import date
 
     refreshed = {"events": 0, "alliances": 0, "errors": 0}
@@ -179,19 +177,21 @@ def _do_refresh(db) -> dict:
             logger.warning("Cache refresh failed for event %d: %s", event.event_id, exc)
             refreshed["errors"] += 1
 
-    # Refresh alliance projections
-    alliances = db.query(Alliance).all()
-    for alliance in alliances:
+    # Refresh alliance projections — UserAlliance only (user-built alliance picks,
+    # not the 2-per-match Alliance rows which would be 300k+ entries)
+    from app.models.user_alliance import UserAlliance
+    user_alliances = db.query(UserAlliance).all()
+    for ua in user_alliances:
         try:
-            projection = _build_alliance_projection(db, alliance.alliance_id)
+            projection = _build_alliance_projection(db, ua.alliance_id)
             cache.set(
-                cache.alliance_key(alliance.alliance_id),
+                cache.alliance_key(ua.alliance_id),
                 projection,
                 ttl=TTL_ALLIANCE,
             )
             refreshed["alliances"] += 1
         except Exception as exc:
-            logger.warning("Cache refresh failed for alliance %d: %s", alliance.alliance_id, exc)
+            logger.warning("Cache refresh failed for user_alliance %d: %s", ua.alliance_id, exc)
             refreshed["errors"] += 1
 
     return refreshed

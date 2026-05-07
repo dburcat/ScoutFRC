@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -17,6 +18,11 @@ class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
     DEBUG: bool = True
+
+    # Sync — set to a specific year (e.g. 2026) to restrict all TBA syncs to
+    # that year only. Useful during development to avoid pulling all historical
+    # data. Leave unset (None) in production to allow syncing any year.
+    SYNC_YEAR_LIMIT: Optional[int] = None
 
     model_config = {
         "env_file": str(Path(__file__).parent.parent.parent / ".env"),

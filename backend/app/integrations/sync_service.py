@@ -136,6 +136,13 @@ def sync_season_events(db: Session, year: int) -> dict:
     Only syncs event metadata (not teams/matches) — call sync_event per-event
     for full data. Run once at the start of a season or when deploying fresh.
     """
+    from app.core.config import settings
+    if settings.SYNC_YEAR_LIMIT is not None and year != settings.SYNC_YEAR_LIMIT:
+        logger.warning(
+            "sync_season_events(%d) blocked — SYNC_YEAR_LIMIT=%d",
+            year, settings.SYNC_YEAR_LIMIT,
+        )
+        return {"year": year, "events_synced": 0, "skipped": True, "reason": f"SYNC_YEAR_LIMIT={settings.SYNC_YEAR_LIMIT}"}
     logger.info("Bootstrapping season %d events from TBA", year)
     events_data = tba_client.get_events_by_year(year)
 
@@ -195,6 +202,13 @@ def sync_events_for_years(db: Session, from_year: int, to_year: int) -> dict:
     
     Returns: { years: [from, to], events_synced: count }
     """
+    from app.core.config import settings
+    if settings.SYNC_YEAR_LIMIT is not None:
+        logger.warning(
+            "sync_events_for_years(%d-%d) restricted — SYNC_YEAR_LIMIT=%d",
+            from_year, to_year, settings.SYNC_YEAR_LIMIT,
+        )
+        from_year = to_year = settings.SYNC_YEAR_LIMIT
     logger.info("Syncing events and data for years %d-%d", from_year, to_year)
     
     total_events = 0

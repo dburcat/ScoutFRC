@@ -4,7 +4,6 @@ uvicorn>=0.27.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
 starlette>=1.0.0
-python-multipart>=0.0.6  # Required for form data in FastAPI
 
 # Database
 sqlalchemy==2.0.23
@@ -36,3 +35,8 @@ easyocr>=1.6.0
 opencv-python-headless>=4.8.0
 torch>=2.0.0
 torchvision>=0.15.0
+# Machine Learning (Phase 2 Tier 9 — Performance Prediction)
+scikit-learn>=1.4.0
+pandas>=2.2.0
+joblib>=1.3.0
+yt-dlp>=2024.1.0

@@ -2,19 +2,40 @@ from sqlalchemy.orm import Session, joinedload
 from app.models import Match
 from app.schemas.match_schema import Match_schema
 
+
+def _match_options():
+    """Eagerly load alliances and robot_performances so Match_schema serialises correctly."""
+    return [
+        joinedload(Match.alliances),
+        joinedload(Match.robot_performances),
+    ]
+
+
 def get_matches(db: Session, skip: int = 0, limit: int = 100):
-        matches = db.query(Match).options(joinedload(Match.robot_performances)).offset(skip).limit(limit).all()
+        matches = db.query(Match).options(*_match_options()).offset(skip).limit(limit).all()
         return matches
 
 def get_matches_count(db: Session) -> int:
         return db.query(Match).count()
 
 def get_match(match_id: int, db: Session):
-        match_obj = db.query(Match).options(joinedload(Match.robot_performances)).filter(Match.match_id == match_id).first()
+        match_obj = (
+            db.query(Match)
+            .options(*_match_options())
+            .filter(Match.match_id == match_id)
+            .first()
+        )
         return match_obj
 
 def get_matches_by_event(event_id: int, db: Session, skip: int = 0, limit: int = 100):
-        matches = db.query(Match).options(joinedload(Match.robot_performances)).filter(Match.event_id == event_id).offset(skip).limit(limit).all()
+        matches = (
+            db.query(Match)
+            .options(*_match_options())
+            .filter(Match.event_id == event_id)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
         return matches
 
 def get_matches_by_event_count(event_id: int, db: Session) -> int:

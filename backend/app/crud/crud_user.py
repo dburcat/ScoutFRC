@@ -1,8 +1,7 @@
 from sqlalchemy.orm import Session
 from app.models import User
-from app.core.security import verify_password
+from app.core.security import verify_password, get_password_hash
 from typing import Optional
-from app.core.security import get_password_hash
 from app.schemas.user_schema import UserCreate
 
 def get_users(db: Session):
