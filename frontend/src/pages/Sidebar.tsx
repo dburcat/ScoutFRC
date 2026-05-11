@@ -35,14 +35,38 @@ export default function Sidebar() {
   return (
     <aside className="flex flex-col w-52 min-w-[208px] bg-app-sidebar border-r border-app-border">
       {/* Logo */}
-      <div className="flex items-center gap-2.5 px-4 py-[15px] border-b border-app-border">
-        <div className="w-7 h-7 rounded-md bg-brand flex items-center justify-center flex-shrink-0">
-          <svg width="15" height="15" fill="none" viewBox="0 0 24 24">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-              stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </div>
-        <span className="text-sm font-medium text-white tracking-tight">ScouterFRC</span>
+      <div className="flex items-center gap-2.5 px-3 py-2 border-b border-app-border">
+        <svg width="160" height="100" viewBox="180 110 320 270" xmlns="http://www.w3.org/2000/svg" aria-label="ScouterFRC logo" role="img" className="flex-shrink-0">
+          <polygon points="340,140 400,174 400,242 340,276 280,242 280,174" fill="none" stroke="#2563eb" strokeWidth="2.5"/>
+          <line x1="400" y1="174" x2="440" y2="155" stroke="#1e3a5f" strokeWidth="1.5"/>
+          <line x1="440" y1="155" x2="462" y2="155" stroke="#1e3a5f" strokeWidth="1.5"/>
+          <circle cx="462" cy="155" r="3" fill="#1e3a5f"/>
+          <line x1="400" y1="242" x2="440" y2="261" stroke="#1e3a5f" strokeWidth="1.5"/>
+          <line x1="440" y1="261" x2="462" y2="261" stroke="#1e3a5f" strokeWidth="1.5"/>
+          <circle cx="462" cy="261" r="3" fill="#1e3a5f"/>
+          <line x1="280" y1="174" x2="240" y2="155" stroke="#1e3a5f" strokeWidth="1.5"/>
+          <line x1="240" y1="155" x2="218" y2="155" stroke="#1e3a5f" strokeWidth="1.5"/>
+          <circle cx="218" cy="155" r="3" fill="#1e3a5f"/>
+          <line x1="280" y1="242" x2="240" y2="261" stroke="#1e3a5f" strokeWidth="1.5"/>
+          <line x1="240" y1="261" x2="218" y2="261" stroke="#1e3a5f" strokeWidth="1.5"/>
+          <circle cx="218" cy="261" r="3" fill="#1e3a5f"/>
+          <line x1="340" y1="140" x2="340" y2="118" stroke="#1e3a5f" strokeWidth="1.5"/>
+          <circle cx="340" cy="118" r="3" fill="#1e3a5f"/>
+          <line x1="340" y1="276" x2="340" y2="298" stroke="#1e3a5f" strokeWidth="1.5"/>
+          <circle cx="340" cy="298" r="3" fill="#1e3a5f"/>
+          <line x1="295" y1="248" x2="385" y2="248" stroke="#1e3a5f" strokeWidth="1.5" strokeLinecap="round"/>
+          <rect x="298" y="234" width="12" height="14" rx="2" fill="#1e3a5f"/>
+          <rect x="314" y="224" width="12" height="24" rx="2" fill="#1e3a5f"/>
+          <rect x="330" y="216" width="12" height="32" rx="2" fill="#2563eb"/>
+          <rect x="346" y="204" width="12" height="44" rx="2" fill="#2563eb"/>
+          <rect x="362" y="192" width="12" height="56" rx="2" fill="#60a5fa"/>
+          <polyline points="304,231 320,221 336,213 352,201 368,189" stroke="#f59e0b" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+          <circle cx="368" cy="189" r="4" fill="#f59e0b"/>
+          <text x="340" y="338" textAnchor="middle" fontFamily="system-ui, sans-serif" fontSize="42" fontWeight="500" letterSpacing="-1">
+            <tspan fill="#3b82f6">Scouter</tspan><tspan fill="#f1f5f9">FRC</tspan>
+          </text>
+          <text x="340" y="360" textAnchor="middle" fontFamily="system-ui, sans-serif" fontSize="14" fontWeight="400" letterSpacing="3" fill="#64748b">COMPETITION INTELLIGENCE</text>
+        </svg>
       </div>
 
       {/* Sign-in Button (when not authenticated) */}

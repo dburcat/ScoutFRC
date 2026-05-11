@@ -1,0 +1,85 @@
+<svg width="480" height="280" viewBox="0 0 680 400" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>ScouterFRC Logo</title>
+  <desc>ScouterFRC logo featuring a hexagonal frame with circuit traces and a rising bar chart with trend line, representing competition analytics.</desc>
+
+  <style>
+    .logo-text-main { font-family: system-ui, -apple-system, sans-serif; font-size: 42px; font-weight: 500; letter-spacing: -1px; }
+    .logo-text-sub { font-family: system-ui, -apple-system, sans-serif; font-size: 14px; font-weight: 400; letter-spacing: 3px; }
+    .logo-text-accent { fill: #3b82f6; }
+
+    .hex-fill { fill: #eff6ff; }
+    .hex-border { stroke: #3b82f6; }
+    .bar-dim { fill: #dbeafe; }
+    .bar-mid { fill: #93c5fd; }
+    .bar-lit { fill: #3b82f6; }
+    .baseline { stroke: #bfdbfe; fill: none; }
+    .circuit { stroke: #dbeafe; fill: none; }
+    .circuit-dot { fill: #bfdbfe; }
+    .trend { stroke: #d97706; fill: none; }
+    .trend-dot { fill: #d97706; }
+    .wm-fill { fill: #0f172a; }
+    .sub-fill { fill: #94a3b8; }
+
+    @media (prefers-color-scheme: dark) {
+      .hex-fill { fill: #0f172a; }
+      .hex-border { stroke: #2563eb; }
+      .bar-dim { fill: #1e3a5f; }
+      .bar-mid { fill: #2563eb; }
+      .bar-lit { fill: #60a5fa; }
+      .baseline { stroke: #1e3a5f; fill: none; }
+      .circuit { stroke: #1e3a5f; fill: none; }
+      .circuit-dot { fill: #1e3a5f; }
+      .trend { stroke: #f59e0b; fill: none; }
+      .trend-dot { fill: #f59e0b; }
+      .wm-fill { fill: #f1f5f9; }
+      .sub-fill { fill: #64748b; }
+    }
+  </style>
+
+  <!-- Hexagon -->
+  <polygon points="340,140 400,174 400,242 340,276 280,242 280,174" class="hex-fill"/>
+  <polygon points="340,140 400,174 400,242 340,276 280,242 280,174" fill="none" class="hex-border" stroke-width="2.5"/>
+
+  <!-- Circuit traces -->
+  <line x1="400" y1="174" x2="440" y2="155" class="circuit" stroke-width="1.5"/>
+  <line x1="440" y1="155" x2="462" y2="155" class="circuit" stroke-width="1.5"/>
+  <circle cx="462" cy="155" r="3" class="circuit-dot"/>
+
+  <line x1="400" y1="242" x2="440" y2="261" class="circuit" stroke-width="1.5"/>
+  <line x1="440" y1="261" x2="462" y2="261" class="circuit" stroke-width="1.5"/>
+  <circle cx="462" cy="261" r="3" class="circuit-dot"/>
+
+  <line x1="280" y1="174" x2="240" y2="155" class="circuit" stroke-width="1.5"/>
+  <line x1="240" y1="155" x2="218" y2="155" class="circuit" stroke-width="1.5"/>
+  <circle cx="218" cy="155" r="3" class="circuit-dot"/>
+
+  <line x1="280" y1="242" x2="240" y2="261" class="circuit" stroke-width="1.5"/>
+  <line x1="240" y1="261" x2="218" y2="261" class="circuit" stroke-width="1.5"/>
+  <circle cx="218" cy="261" r="3" class="circuit-dot"/>
+
+  <line x1="340" y1="140" x2="340" y2="118" class="circuit" stroke-width="1.5"/>
+  <circle cx="340" cy="118" r="3" class="circuit-dot"/>
+
+  <line x1="340" y1="276" x2="340" y2="298" class="circuit" stroke-width="1.5"/>
+  <circle cx="340" cy="298" r="3" class="circuit-dot"/>
+
+  <!-- Baseline -->
+  <line x1="295" y1="248" x2="385" y2="248" class="baseline" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- Bar chart -->
+  <rect x="298" y="234" width="12" height="14" rx="2" class="bar-dim"/>
+  <rect x="314" y="224" width="12" height="24" rx="2" class="bar-dim"/>
+  <rect x="330" y="216" width="12" height="32" rx="2" class="bar-mid"/>
+  <rect x="346" y="204" width="12" height="44" rx="2" class="bar-mid"/>
+  <rect x="362" y="192" width="12" height="56" rx="2" class="bar-lit"/>
+
+  <!-- Trend line -->
+  <polyline points="304,231 320,221 336,213 352,201 368,189" class="trend" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="368" cy="189" r="4" class="trend-dot"/>
+
+  <!-- Wordmark -->
+  <text x="340" y="338" text-anchor="middle" class="logo-text-main">
+    <tspan class="logo-text-accent">Scouter</tspan><tspan class="wm-fill">FRC</tspan>
+  </text>
+  <text x="340" y="360" text-anchor="middle" class="logo-text-sub sub-fill">COMPETITION INTELLIGENCE</text>
+</svg>

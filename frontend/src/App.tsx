@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Trophy } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
@@ -54,6 +55,7 @@ function AppShell() {
     <div className="flex min-h-screen w-full bg-app-bg">
       <Sidebar />
       <main className="flex-1 min-w-0 flex flex-col">
+        <FRCHeader />
         <Routes>
           <Route path="/"        element={<DashboardPage />} />
           <Route path="/events"  element={<EventsPage />} />
@@ -113,6 +115,29 @@ function LoadingSpinner() {
         Loading…
       </div>
     </div>
+  );
+}
+
+/** Shown on every page except the dashboard (/) */
+function FRCHeader() {
+  const { pathname } = useLocation();
+  if (pathname === '/') return null;
+
+  return (
+    <header className="flex items-center gap-3 px-6 py-3.5 border-b border-app-border bg-app-sidebar/60 backdrop-blur-sm flex-shrink-0">
+      <div className="flex items-center justify-center w-6 h-6 rounded-md bg-brand/20 flex-shrink-0">
+        <Trophy size={13} className="text-brand" />
+      </div>
+      <div className="flex flex-col min-w-0">
+        <span className="text-[13px] font-semibold tracking-wide text-white/80 uppercase leading-tight">
+          First Robotics Competition
+        </span>
+        <span className="text-[11px] text-slate-500 leading-tight mt-0.5">
+          International high school robotics competition where student teams design, build &amp; compete with robots
+        </span>
+      </div>
+      <div className="flex-1 h-px bg-app-border ml-2" />
+    </header>
   );
 }
 

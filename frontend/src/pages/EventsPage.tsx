@@ -307,7 +307,9 @@ function EventDetailPanel({ event }: { event: Event }) {
   const isFetching = tab === 'teams' ? teamsFetching : matchesFetching;
 
   useEffect(() => {
-    contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => {
+      contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 150);
   }, [event.event_id, tab]);
 
   return (
@@ -458,11 +460,34 @@ export default function EventsPage() {
 
   const selectedEvent = events.find(e => e.event_id === selectedEventId) ?? null;
 
-  useEffect(() => {
-    if (selectedEvent) {
-      detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+
+useEffect(() => {
+  if (selectedEvent && detailPanelRef.current) {
+    const targetPos = detailPanelRef.current.getBoundingClientRect().top + window.pageYOffset;
+    const startPos = window.pageYOffset;
+    const distance = targetPos - startPos;
+    const duration = 1500; // 1.5 seconds - change this to slow it down!
+    let start = null;
+
+    function step(timestamp) {
+      if (!start) start = timestamp;
+      const progress = timestamp - start;
+      
+      // Easing function: make it feel natural
+      const easeInOutQuad = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      const percentage = Math.min(progress / duration, 1);
+      
+      window.scrollTo(0, startPos + distance * easeInOutQuad(percentage));
+
+      if (progress < duration) {
+        window.requestAnimationFrame(step);
+      }
     }
-  }, [selectedEvent]);
+
+    window.requestAnimationFrame(step);
+  }
+}, [selectedEvent]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -546,13 +571,37 @@ export default function EventsPage() {
           {selectedEvent ? (
             <EventDetailPanel event={selectedEvent} />
           ) : (
-            <div className="flex-1 flex items-center justify-center border border-app-border rounded-xl border-dashed">
+            <div className="flex-1 flex flex-col items-center justify-start pt-10 border border-app-border rounded-xl border-dashed gap-4">
+              <svg width="320" height="200" viewBox="200 130 280 160" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="opacity-[0.06]">
+                <polygon points="340,140 400,174 400,242 340,276 280,242 280,174" fill="none" stroke="#ffffff" strokeWidth="2.5"/>
+                <line x1="400" y1="174" x2="440" y2="155" stroke="#ffffff" strokeWidth="1.5"/>
+                <line x1="440" y1="155" x2="462" y2="155" stroke="#ffffff" strokeWidth="1.5"/>
+                <circle cx="462" cy="155" r="3" fill="#ffffff"/>
+                <line x1="400" y1="242" x2="440" y2="261" stroke="#ffffff" strokeWidth="1.5"/>
+                <line x1="440" y1="261" x2="462" y2="261" stroke="#ffffff" strokeWidth="1.5"/>
+                <circle cx="462" cy="261" r="3" fill="#ffffff"/>
+                <line x1="280" y1="174" x2="240" y2="155" stroke="#ffffff" strokeWidth="1.5"/>
+                <line x1="240" y1="155" x2="218" y2="155" stroke="#ffffff" strokeWidth="1.5"/>
+                <circle cx="218" cy="155" r="3" fill="#ffffff"/>
+                <line x1="280" y1="242" x2="240" y2="261" stroke="#ffffff" strokeWidth="1.5"/>
+                <line x1="240" y1="261" x2="218" y2="261" stroke="#ffffff" strokeWidth="1.5"/>
+                <circle cx="218" cy="261" r="3" fill="#ffffff"/>
+                <line x1="340" y1="140" x2="340" y2="118" stroke="#ffffff" strokeWidth="1.5"/>
+                <circle cx="340" cy="118" r="3" fill="#ffffff"/>
+                <line x1="340" y1="276" x2="340" y2="298" stroke="#ffffff" strokeWidth="1.5"/>
+                <circle cx="340" cy="298" r="3" fill="#ffffff"/>
+                <line x1="295" y1="248" x2="385" y2="248" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round"/>
+                <rect x="298" y="234" width="12" height="14" rx="2" fill="#ffffff"/>
+                <rect x="314" y="224" width="12" height="24" rx="2" fill="#ffffff"/>
+                <rect x="330" y="216" width="12" height="32" rx="2" fill="#ffffff"/>
+                <rect x="346" y="204" width="12" height="44" rx="2" fill="#ffffff"/>
+                <rect x="362" y="192" width="12" height="56" rx="2" fill="#ffffff"/>
+                <polyline points="304,231 320,221 336,213 352,201 368,189" stroke="#ffffff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                <circle cx="368" cy="189" r="4" fill="#ffffff"/>
+              </svg>
               <div className="text-center">
-                <CalendarDays size={24} className="text-slate-700 mx-auto mb-2" />
-                <p className="text-slate-500 text-sm">Select an event</p>
-                <p className="text-slate-700 text-xs mt-1">
-                  Click any event to view teams and matches, then click a match for the breakdown
-                </p>
+                <p className="text-slate-600 text-sm">Select an event to get started</p>
+                <p className="text-slate-700 text-xs mt-1">View teams and matches, then click a match for the full breakdown</p>
               </div>
             </div>
           )}
