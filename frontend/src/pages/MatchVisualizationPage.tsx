@@ -31,6 +31,12 @@ interface TeamTrajectory {
     total_points: number;
     distance_traveled: number;
   };
+  station?: {
+    slot: number;
+    label: string;
+    median_x: number;
+    median_y: number;
+  };
 }
 
 interface MatchTrajectoriesResponse {
@@ -201,6 +207,13 @@ export function MatchVisualizationPage() {
   if (!trajectories || !fieldLayout || !heatmapData) return null;
 
   const teams = Object.values(trajectories.teams);
+  
+  // Calculate total movement points from trajectory data
+  // (more reliable than heatmap response which may lag or have filtering issues)
+  const totalMovementPoints = Object.values(trajectories.teams).reduce(
+    (sum, traj) => sum + (traj.stats?.total_points || traj.coordinates?.length || 0),
+    0
+  );
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6 space-y-6">
@@ -208,8 +221,8 @@ export function MatchVisualizationPage() {
       <div className="space-y-1">
         <h1 className="text-3xl font-bold">Match {matchId} Visualization</h1>
         <p className="text-slate-400">
-          {teams.length} teams tracked · {heatmapData.total_points} movement points
-          {heatmapData.total_points === 0 && (
+          {teams.length} teams tracked · {totalMovementPoints} movement points
+          {totalMovementPoints === 0 && (
             <span className="ml-2 text-yellow-400 text-sm">
               ⚠ No tracking data — run the video CV pipeline first
             </span>
@@ -301,23 +314,30 @@ export function MatchVisualizationPage() {
                 All Teams
               </button>
 
-              {teams.map((team) => (
-                <button
-                  key={team.team_id}
-                  onClick={() => setSelectedTeam(team.team_id)}
-                  className={`w-full text-left px-2 py-1.5 rounded text-sm transition ${
-                    selectedTeam === team.team_id
-                      ? "bg-blue-600 text-white"
-                      : team.alliance === "red"
-                        ? "hover:bg-red-900/30 text-red-300"
-                        : "hover:bg-blue-900/30 text-blue-300"
-                  }`}
-                >
-                  <div className="font-semibold">Team {team.team_id}</div>
-                  <div className="text-xs opacity-70">{team.stats.total_points} track points</div>
-                  <div className="text-xs opacity-70">{team.stats.distance_traveled.toFixed(1)} ft</div>
-                </button>
-              ))}
+              {teams.map((team) => {
+                // Generate display label: use station info for unidentified robots
+                const label = team.station
+                  ? `${team.station.label}`
+                  : `Team ${team.team_id}`;
+                
+                return (
+                  <button
+                    key={team.team_id}
+                    onClick={() => setSelectedTeam(team.team_id)}
+                    className={`w-full text-left px-2 py-1.5 rounded text-sm transition ${
+                      selectedTeam === team.team_id
+                        ? "bg-blue-600 text-white"
+                        : team.alliance === "red"
+                          ? "hover:bg-red-900/30 text-red-300"
+                          : "hover:bg-blue-900/30 text-blue-300"
+                    }`}
+                  >
+                    <div className="font-semibold">{label}</div>
+                    <div className="text-xs opacity-70">{team.stats.total_points} track points</div>
+                    <div className="text-xs opacity-70">{team.stats.distance_traveled.toFixed(1)} ft</div>
+                  </button>
+                );
+              })}
 
               {teams.length === 0 && (
                 <p className="text-xs text-slate-500 p-2">
@@ -329,7 +349,11 @@ export function MatchVisualizationPage() {
 
           {selectedTeam !== null && trajectories.teams[selectedTeam] && (
             <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
-              <h3 className="text-sm font-semibold mb-3">Team {selectedTeam} Stats</h3>
+              {(() => {
+                const team = trajectories.teams[selectedTeam];
+                const label = team.station ? `${team.station.label}` : `Team ${selectedTeam}`;
+                return <h3 className="text-sm font-semibold mb-3">{label} Stats</h3>;
+              })()}
               <div className="space-y-2 text-sm">
                 <div>
                   <div className="text-slate-400">Track Points</div>

@@ -80,12 +80,15 @@ services:
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
       TBA_API_KEY: ${TBA_API_KEY:-}
       APP_ENV: ${APP_ENV:-development}
+      # FRC 2024 fine-tuned model (works for 2026 game similar mechanics)
+      # Note: base yolov8s doesn't know what FRC robots are — needs FRC-specific training
+      # TODO: Retrain on 2026 actual match footage for better quality
       YOLO_MODEL_PATH: /app/models/frc_robot_detector.pt
       # Reduce memory by disabling EasyOCR during video processing
       # (team identification can be done separately once tracking works)
       DISABLE_OCR: "true"
     volumes:
-      - ./backend/models:/app/models:ro
+      - ./backend/models:/app/models
     deploy:
       resources:
         limits:

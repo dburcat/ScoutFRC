@@ -265,7 +265,7 @@ export default function DashboardPage() {
       {/* Topbar */}
       <div className="flex items-center justify-between px-6 py-3.5 border-b border-app-border flex-shrink-0">
         <div>
-          <p className="text-[15px] font-medium text-white">2025 Season Dashboard</p>
+          <p className="text-[15px] font-medium text-white">2026 Season Dashboard</p>
           <p className="text-[11px] text-slate-600 mt-0.5">Reefscape — active season</p>
         </div>
         <div className="flex items-center gap-3">

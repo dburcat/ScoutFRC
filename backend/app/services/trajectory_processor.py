@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models import MovementTrack, Match
 from app.services.field_definitions import get_field_layout
+from app.services.team_mapper import TeamMapper
 
 
 class TrajectoryProcessor:
@@ -118,7 +119,49 @@ class TrajectoryProcessor:
                 traj["all_coordinates"]
             )
 
+        # Enrich with field-position assignments for team identification
+        # when team_id is not available (OCR disabled)
+        self._enrich_with_station_assignments(match_id, trajectories_by_team)
+
         return trajectories_by_team
+
+    def _enrich_with_station_assignments(
+        self,
+        match_id: int,
+        trajectories: Dict[int, Dict],
+    ) -> None:
+        """
+        Add field-position-based team and station info when team_ids are negative
+        (indicating missing OCR data).
+
+        Modifies trajectories in-place to add:
+        - "station_slot": Station number (1-3) based on x-position
+        - "inferred_alliance": Alliance color (red/blue) based on y-position
+
+        Args:
+            match_id: Match ID
+            trajectories: Dictionary of trajectories to enrich
+        """
+        mapper = TeamMapper(self.db)
+        assignments = mapper.get_station_assignment(match_id)
+
+        for team_id, traj in trajectories.items():
+            # Only apply heuristics for synthetic team IDs (negative = unidentified tracks)
+            if team_id >= 0:
+                continue
+
+            track_id = -team_id  # Extract original track_id
+            if track_id in assignments:
+                assignment = assignments[track_id]
+                # Update alliance from position-based detection
+                traj["alliance"] = assignment["alliance"]
+                # Add station info for reference
+                traj["station"] = {
+                    "slot": assignment["station_slot"],
+                    "label": assignment["label"],
+                    "median_x": assignment["median_x"],
+                    "median_y": assignment["median_y"],
+                }
 
     def get_team_trajectory(
         self,

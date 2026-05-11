@@ -106,11 +106,11 @@ def main() -> None:
     print()
     print("⚠️  This will WIPE all existing data from the database.")
     confirm = input("Type 'yes' to continue: ").strip().lower()
-    if confirm != "yes":
-        print("Aborted.")
-        sys.exit(0)
+    # if confirm != "yes":
+    #     print("Aborted.")
+    #     sys.exit(0)
 
-    wipe_database()
+    # wipe_database()
 
     username, password = prompt_credentials()
 

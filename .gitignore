@@ -238,3 +238,7 @@ dist/
 FRC-2024-1/
 frc_model/
 runs/
+frc_model_2026*/
+.frames_2026*/
+
+*.zip
