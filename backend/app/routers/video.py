@@ -95,7 +95,7 @@ def upload_match_video(
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # Parse alliance teams
+    # Parse alliance teams (team numbers, not DB IDs)
     def parse_teams(s: str) -> list[int]:
         return [int(t.strip()) for t in s.split(",") if t.strip().isdigit()]
 
@@ -104,6 +104,21 @@ def upload_match_video(
         "blue": parse_teams(alliance_blue),
     }
 
+    # Build team_number → team_id lookup from the DB so the CV pipeline can
+    # write the correct FK on every MovementTrack row.
+    # Without this, team_id is always NULL and trajectory queries return nothing.
+    all_team_numbers = alliance_teams["red"] + alliance_teams["blue"]
+    team_id_lookup: dict[str, int] = {}
+    if all_team_numbers:
+        from app.models.team import Team
+        rows = (
+            db.query(Team.team_number, Team.team_id)
+            .filter(Team.team_number.in_(all_team_numbers))
+            .all()
+        )
+        # Keys are strings because Celery serialises dict keys as strings
+        team_id_lookup = {str(row.team_number): row.team_id for row in rows}
+
     # Dispatch Celery task
     result = process_video_file.apply_async(
         kwargs={
@@ -111,6 +126,7 @@ def upload_match_video(
             "video_path": str(dest),
             "alliance_teams": alliance_teams,
             "event_id": event_id,
+            "team_id_lookup": team_id_lookup,  # ← was always missing, causing team_id=NULL
         },
         queue="video",
     )

@@ -192,10 +192,11 @@ def process_match_video_from_url(self: Task, match_id: int) -> dict:
         return result
 
     except VideoDownloadError as exc:
-        # Don't retry download errors (video may be unavailable/private)
-        logger.warning("auto_video: download failed for match %d: %s", match_id, exc)
-        _set_match_status(match_id, "failed")
-        return {"match_id": match_id, "status": "failed", "reason": str(exc)}
+        # Reset to pending — download errors are transient (yt-dlp issue, temp network
+        # blip, placeholder file conflict). The match will be retried next poll cycle.
+        logger.warning("auto_video: download failed for match %d: %s — resetting to pending", match_id, exc)
+        _set_match_status(match_id, "pending")
+        return {"match_id": match_id, "status": "download_failed", "reason": str(exc)}
 
     except Exception as exc:
         logger.error("auto_video: error for match %d: %s", match_id, exc)
@@ -225,20 +226,26 @@ def queue_pending_video_matches_task() -> dict:
 
 def queue_pending_video_matches() -> int:
     """
-    Find all matches that have a video_url but haven't been processed yet,
-    and dispatch process_match_video_from_url for each.
+    Find matches that have a video_url, haven't been processed yet, and have no
+    existing movement_track rows. Dispatches process_match_video_from_url per match.
 
-    Called by the scheduler after each active-event sync.
-    Returns the number of matches queued.
+    Guards against re-queuing:
+    - Only picks up processing_status = 'pending'
+    - Skips any match that already has movement_track rows (already processed)
+    - Sets status to 'processing' before dispatching (prevents next poll re-queuing)
+    - Caps at 8 matches per run (one per worker) to avoid a stampede
     """
     from app.models.match import Match
     from app.models.event import Event
+    from app.models.movement_track import MovementTrack
+    from sqlalchemy import exists
     from datetime import date, timedelta
 
-    # Only process matches from active/recently-completed events
-    # (avoid re-processing old historical matches)
     today = date.today()
-    window_start = today - timedelta(days=3)
+    window_start = today - timedelta(days=14)
+
+    # Max dispatches per poll — one per worker so queue doesn't explode
+    MAX_PER_RUN = 8
 
     with SessionLocal() as db:
         pending = (
@@ -247,8 +254,11 @@ def queue_pending_video_matches() -> int:
             .filter(
                 Match.video_url.isnot(None),
                 Match.processing_status == "pending",
-                Event.start_date >= window_start,
+                Event.end_date >= window_start,
+                # Skip matches that already have movement tracks
+                ~exists().where(MovementTrack.match_id == Match.match_id),
             )
+            .limit(MAX_PER_RUN)
             .all()
         )
 
@@ -259,7 +269,7 @@ def queue_pending_video_matches() -> int:
                     kwargs={"match_id": match.match_id},
                     queue="video",
                 )
-                # Mark as 'processing' immediately to prevent double-queuing
+                # Mark as 'processing' immediately to prevent next poll re-queuing
                 match.processing_status = "processing"
                 queued += 1
                 logger.info(

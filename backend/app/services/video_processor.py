@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # ── Review flag thresholds ────────────────────────────────────────────────────
 REVIEW_CONFIDENCE_THRESHOLD = 0.60
-FRAME_SAMPLE_FPS = 10           # Extract this many frames per second
+FRAME_SAMPLE_FPS = 5            # Extract this many frames per second (lower = less RAM)
 PROGRESS_INTERVAL = 50          # Report progress every N processed frames
 
 ACCEPTED_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv"}
@@ -68,7 +68,19 @@ class MovementTrackCreate:
     review_reason: str | None
 
     def to_dict(self) -> dict:
-        return self.__dict__.copy()
+        import numpy as np
+        out = {}
+        for k, v in self.__dict__.items():
+            # psycopg2 cannot serialize numpy scalar types — coerce to native Python
+            if isinstance(v, np.floating):
+                out[k] = float(v)
+            elif isinstance(v, np.integer):
+                out[k] = int(v)
+            elif isinstance(v, np.bool_):
+                out[k] = bool(v)
+            else:
+                out[k] = v
+        return out
 
 
 ProgressCallback = Callable[[int, int, str], None]
@@ -97,9 +109,16 @@ class VideoProcessor:
         processing_fps: int = FRAME_SAMPLE_FPS,
         use_gpu: bool = False,
     ) -> None:
+        import os as _os
         self.detector = RobotDetector(model_path=model_path)
         self.tracker = RobotTracker()
-        self.identifier = TeamIdentifier(use_gpu=use_gpu)
+        self._ocr_disabled = _os.environ.get("DISABLE_OCR", "").lower() in ("true", "1", "yes")
+        if self._ocr_disabled:
+            import logging as _logging
+            _logging.getLogger(__name__).info("OCR disabled — EasyOCR will not be loaded, saving ~800MB RAM")
+            self.identifier = None  # type: ignore[assignment]
+        else:
+            self.identifier = TeamIdentifier(use_gpu=use_gpu)
         self.transform = FieldPerspectiveTransform(matrix=calibration_matrix)
         self.processing_fps = processing_fps
         self._frame_interval_ms = 1000 / processing_fps
@@ -219,10 +238,13 @@ class VideoProcessor:
         if not robot_detections:
             return []
 
-        # Stage 2: Identify
-        identifications = self.identifier.identify_all(
-            frame, robot_detections, alliance_teams, frame_number
-        )
+        # Stage 2: Identify (skipped when DISABLE_OCR=true to save ~800MB RAM)
+        if self._ocr_disabled or self.identifier is None:
+            identifications = []
+        else:
+            identifications = self.identifier.identify_all(
+                frame, robot_detections, alliance_teams, frame_number
+            )
 
         # Stage 3: Track
         tracked = self.tracker.update(frame, robot_detections, identifications)

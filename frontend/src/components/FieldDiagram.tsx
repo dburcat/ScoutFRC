@@ -1,18 +1,5 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useCallback } from "react";
 import { Maximize2, ZoomIn, ZoomOut } from "lucide-react";
-
-/**
- * FRC Field Diagram Component
- *
- * Renders an accurate field layout for the current game season with
- * scoring zones and game elements.
- *
- * 2024 Crescendo Field:
- * - 54' × 27' field
- * - Blue speaker (left), Red speaker (right)
- * - Blue amp (bottom-left), Red amp (bottom-right)
- * - Center stage (endgame zone)
- */
 
 export interface FieldZone {
   name: string;
@@ -47,9 +34,6 @@ interface FieldDiagramProps {
   maxHeatmapIntensity?: number;
 }
 
-/**
- * FieldDiagram: Main field visualization component
- */
 export function FieldDiagram({
   width = 800,
   height = 400,
@@ -65,33 +49,33 @@ export function FieldDiagram({
   const [pan, setPan] = React.useState({ x: 0, y: 0 });
   const svgRef = React.useRef<SVGSVGElement>(null);
 
-  // Calculate scaling
+  // Base scaling — zoom/pan live on the <g> transform, not here
   const xScale = (width - 40) / fieldLayout.width_ft;
   const yScale = (height - 40) / fieldLayout.height_ft;
 
-  // Convert field coords to SVG coords
-  const fieldToSvg = (x: number, y: number) => {
-    return {
-      x: 20 + x * xScale * zoom + pan.x,
-      y: height - 20 - y * yScale * zoom - pan.y,
-    };
-  };
+  // Convert field coords → base SVG coords (NO zoom/pan baked in)
+  // FIX: was previously baking zoom+pan in here AND the <g> also applied them,
+  // causing a double-transform that pushed everything off-screen.
+  const fieldToSvg = useCallback(
+    (x: number, y: number) => ({
+      x: 20 + x * xScale,
+      y: height - 20 - y * yScale,
+    }),
+    [xScale, yScale, height]
+  );
 
-  // Handle zoom
   const handleZoom = (direction: "in" | "out") => {
     const factor = direction === "in" ? 1.2 : 0.8;
     setZoom((prev) => Math.max(0.5, Math.min(prev * factor, 3)));
   };
 
-  // Reset view
   const handleReset = () => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
   };
 
-  // Pan handling
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (e.button !== 2) return; // Right-click for pan
+    if (e.button !== 2) return;
     const startX = e.clientX;
     const startY = e.clientY;
     const startPan = { ...pan };
@@ -102,263 +86,208 @@ export function FieldDiagram({
         y: startPan.y + moveEvent.clientY - startY,
       });
     };
-
     const handleMouseUp = () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
     e.preventDefault();
   };
 
-  // Render heatmap
+  // Heatmap bins rendered as SVG rects (no separate canvas positioning issues)
   const heatmapLayer = useMemo(() => {
     if (heatmapBins.length === 0) return null;
-
-    const cellSize = 1.0; // 1-foot cells
-    const cells = [];
-
-    for (const bin of heatmapBins) {
-      const intensity = bin.intensity / Math.max(maxHeatmapIntensity, 1);
-      const opacity = Math.min(intensity * 0.8, 0.8);
-      
-      // Color gradient: cool (blue) -> hot (red)
-      const hue = (1 - intensity) * 240; // 240 (blue) to 0 (red)
-      const color = `hsl(${hue}, 100%, 50%)`;
-
-      const topLeft = fieldToSvg(bin.center_x - cellSize / 2, bin.center_y + cellSize / 2);
-      const bottomRight = fieldToSvg(bin.center_x + cellSize / 2, bin.center_y - cellSize / 2);
-
-      cells.push(
-        <g key={`heatmap-${bin.center_x}-${bin.center_y}`} opacity={opacity}>
-          <rect
-            x={topLeft.x}
-            y={topLeft.y}
-            width={bottomRight.x - topLeft.x}
-            height={bottomRight.y - topLeft.y}
-            fill={color}
-            stroke="none"
-          />
-        </g>
-      );
-    }
-
-    return <g id="heatmap-layer">{cells}</g>;
+    const cellSize = 1.0;
+    return (
+      <g id="heatmap-layer">
+        {heatmapBins.map((bin) => {
+          const intensity = bin.intensity / Math.max(maxHeatmapIntensity, 1);
+          const opacity = Math.min(intensity * 0.85, 0.85);
+          const hue = (1 - intensity) * 240;
+          const tl = fieldToSvg(bin.center_x - cellSize / 2, bin.center_y + cellSize / 2);
+          const br = fieldToSvg(bin.center_x + cellSize / 2, bin.center_y - cellSize / 2);
+          return (
+            <rect
+              key={`h-${bin.center_x}-${bin.center_y}`}
+              x={tl.x}
+              y={tl.y}
+              width={Math.abs(br.x - tl.x)}
+              height={Math.abs(br.y - tl.y)}
+              fill={`hsl(${hue},100%,50%)`}
+              opacity={opacity}
+            />
+          );
+        })}
+      </g>
+    );
   }, [heatmapBins, maxHeatmapIntensity, fieldToSvg]);
 
-  // Render trajectories
+  // Trajectory paths
+  // FIX: trajectories may be empty or have no coords — guard against those
   const trajectoryLayer = useMemo(() => {
-    const lines = [];
+    const items: React.ReactNode[] = [];
 
     for (const [teamId, coords] of Object.entries(trajectories)) {
-      if (selectedTeam && parseInt(teamId) !== selectedTeam) continue;
+      if (selectedTeam !== null && parseInt(teamId) !== selectedTeam) continue;
+      if (!coords || coords.length === 0) continue;
 
-      const team = parseInt(teamId);
-      const isRed = team % 2 === 0;
-      const color = isRed ? "#DC143C" : "#4169E1";
-      const opacity = selectedTeam === team ? 1 : 0.6;
+      const isRed = parseInt(teamId) % 2 === 0;
+      const color = isRed ? "#ef4444" : "#3b82f6";
+      const opacity = selectedTeam === null || selectedTeam === parseInt(teamId) ? 1 : 0.35;
 
-      // Draw trajectory line
       if (coords.length > 1) {
-        const pathData = coords
-          .map((coord, idx) => {
-            const point = fieldToSvg(coord[0], coord[1]);
-            return `${idx === 0 ? "M" : "L"} ${point.x} ${point.y}`;
+        const d = coords
+          .map((c, i) => {
+            const p = fieldToSvg(c[0], c[1]);
+            return `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`;
           })
           .join(" ");
-
-        lines.push(
+        items.push(
           <path
-            key={`trajectory-${teamId}`}
-            d={pathData}
+            key={`traj-${teamId}`}
+            d={d}
             fill="none"
             stroke={color}
-            strokeWidth="2"
+            strokeWidth="2.5"
             opacity={opacity}
             strokeLinecap="round"
             strokeLinejoin="round"
           />
         );
-
-        // Draw start point
-        const start = fieldToSvg(coords[0][0], coords[0][1]);
-        lines.push(
-          <circle
-            key={`start-${teamId}`}
-            cx={start.x}
-            cy={start.y}
-            r="4"
-            fill={color}
-            opacity={opacity}
-          />
-        );
-
-        // Draw end point
-        const end = fieldToSvg(coords[coords.length - 1][0], coords[coords.length - 1][1]);
-        lines.push(
-          <circle
-            key={`end-${teamId}`}
-            cx={end.x}
-            cy={end.y}
-            r="4"
-            fill={color}
-            stroke="white"
-            strokeWidth="1"
-            opacity={opacity}
-          />
-        );
       }
-    }
 
-    return <g id="trajectory-layer">{lines}</g>;
-  }, [trajectories, selectedTeam, fieldToSvg]);
+      // Start marker
+      const s = fieldToSvg(coords[0][0], coords[0][1]);
+      items.push(
+        <circle key={`s-${teamId}`} cx={s.x} cy={s.y} r={5} fill="white" stroke={color} strokeWidth="2" opacity={opacity} />
+      );
 
-  // Render zones
-  const zoneLayer = useMemo(() => {
-    const zones = [];
+      // Current position marker
+      const e = fieldToSvg(coords[coords.length - 1][0], coords[coords.length - 1][1]);
+      items.push(
+        <circle key={`e-${teamId}`} cx={e.x} cy={e.y} r={7} fill={color} stroke="white" strokeWidth="1.5" opacity={opacity} />
+      );
 
-    for (const zone of Object.values(fieldLayout.zones)) {
-      const topLeft = fieldToSvg(zone.min_x, zone.max_y);
-      const bottomRight = fieldToSvg(zone.max_x, zone.min_y);
-
-      zones.push(
-        <g key={`zone-${zone.name}`}>
-          <rect
-            x={topLeft.x}
-            y={topLeft.y}
-            width={bottomRight.x - topLeft.x}
-            height={bottomRight.y - topLeft.y}
-            fill={zone.color}
-            fillOpacity="0.2"
-            stroke={zone.color}
-            strokeWidth="2"
-            onClick={() => onZoneClick?.(zone)}
-            className="cursor-pointer hover:fill-opacity-30 transition"
-          />
-          {showZoneLabels && (
-            <text
-              x={(topLeft.x + bottomRight.x) / 2}
-              y={(topLeft.y + bottomRight.y) / 2}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fontSize="12"
-              fill={zone.color}
-              fontWeight="bold"
-              pointerEvents="none"
-            >
-              {zone.name}
-            </text>
-          )}
-        </g>
+      // Team label
+      items.push(
+        <text
+          key={`lbl-${teamId}`}
+          x={e.x + 10}
+          y={e.y - 10}
+          fontSize="12"
+          fill={color}
+          fontWeight="bold"
+          stroke="black"
+          strokeWidth="3"
+          paintOrder="stroke"
+          opacity={opacity}
+        >
+          {teamId}
+        </text>
       );
     }
 
-    return <g id="zone-layer">{zones}</g>;
-  }, [fieldLayout.zones, showZoneLabels, fieldToSvg, onZoneClick]);
+    return <g id="trajectory-layer">{items}</g>;
+  }, [trajectories, selectedTeam, fieldToSvg]);
 
-  const svgWidth = width;
-  const svgHeight = height;
+  // Zone rects
+  const zoneLayer = useMemo(() => (
+    <g id="zone-layer">
+      {Object.values(fieldLayout.zones).map((zone) => {
+        const tl = fieldToSvg(zone.min_x, zone.max_y);
+        const br = fieldToSvg(zone.max_x, zone.min_y);
+        const w = Math.abs(br.x - tl.x);
+        const h = Math.abs(br.y - tl.y);
+        return (
+          <g key={`zone-${zone.name}`}>
+            <rect
+              x={tl.x} y={tl.y} width={w} height={h}
+              fill={zone.color} fillOpacity="0.15"
+              stroke={zone.color} strokeWidth="1.5"
+              onClick={() => onZoneClick?.(zone)}
+              className="cursor-pointer"
+            />
+            {showZoneLabels && (
+              <text
+                x={tl.x + w / 2} y={tl.y + h / 2}
+                textAnchor="middle" dominantBaseline="middle"
+                fontSize="11" fill={zone.color} fontWeight="bold"
+                stroke="black" strokeWidth="2.5" paintOrder="stroke"
+                pointerEvents="none"
+              >
+                {zone.name}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </g>
+  ), [fieldLayout.zones, showZoneLabels, fieldToSvg, onZoneClick]);
 
   return (
     <div className="space-y-2">
-      {/* SVG Canvas */}
       <svg
         ref={svgRef}
-        width={svgWidth}
-        height={svgHeight}
+        width={width}
+        height={height}
         className="border border-slate-700 bg-slate-950 cursor-grab active:cursor-grabbing"
         onMouseDown={handleMouseDown}
         onContextMenu={(e) => e.preventDefault()}
       >
-        {/* Field border */}
-        <rect
-          x={20}
-          y={20}
-          width={xScale * fieldLayout.width_ft * zoom}
-          height={yScale * fieldLayout.height_ft * zoom}
-          fill="none"
-          stroke="white"
-          strokeWidth="2"
-          transform={`translate(${pan.x}, ${pan.y})`}
-        />
-
-        {/* Grid (optional) */}
+        {/* Background grid */}
         <defs>
-          <pattern
-            id="grid"
-            width={xScale * zoom}
-            height={yScale * zoom}
-            patternUnits="userSpaceOnUse"
-            x={20 + pan.x}
-            y={20 + pan.y}
-          >
-            <path d={`M ${xScale * zoom} 0 L 0 0 0 ${yScale * zoom}`} stroke="#404040" strokeWidth="0.5" />
+          <pattern id="grid" width={xScale} height={yScale} patternUnits="userSpaceOnUse" x={20} y={20}>
+            <path d={`M ${xScale} 0 L 0 0 0 ${yScale}`} stroke="#2a2a3a" strokeWidth="0.5" fill="none" />
           </pattern>
         </defs>
-        <rect width="100%" height="100%" fill="url(#grid)" fillOpacity="0.3" />
+        <rect x={20} y={20} width={width - 40} height={height - 40} fill="url(#grid)" />
 
-        {/* Layers */}
-        <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+        {/*
+          FIX: Single <g> handles ALL zoom+pan. fieldToSvg only converts to
+          base SVG space — it no longer bakes in pan/zoom itself.
+          Previously fieldToSvg included pan/zoom AND this <g> re-applied them,
+          placing everything 2x off-screen.
+        */}
+        <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`} style={{ transformOrigin: `${20}px ${height - 20}px` }}>
+          <rect
+            x={20} y={20}
+            width={xScale * fieldLayout.width_ft}
+            height={yScale * fieldLayout.height_ft}
+            fill="none" stroke="white" strokeWidth="2"
+          />
           {heatmapLayer}
           {zoneLayer}
           {trajectoryLayer}
         </g>
       </svg>
 
-      {/* Controls */}
       <div className="flex items-center gap-2">
-        <button
-          onClick={() => handleZoom("out")}
-          className="p-2 bg-slate-800 hover:bg-slate-700 rounded"
-          title="Zoom out"
-        >
+        <button onClick={() => handleZoom("out")} className="p-2 bg-slate-800 hover:bg-slate-700 rounded" title="Zoom out">
           <ZoomOut className="w-4 h-4" />
         </button>
-
-        <div className="text-sm text-slate-400">
-          {(zoom * 100).toFixed(0)}%
-        </div>
-
-        <button
-          onClick={() => handleZoom("in")}
-          className="p-2 bg-slate-800 hover:bg-slate-700 rounded"
-          title="Zoom in"
-        >
+        <div className="text-sm text-slate-400">{(zoom * 100).toFixed(0)}%</div>
+        <button onClick={() => handleZoom("in")} className="p-2 bg-slate-800 hover:bg-slate-700 rounded" title="Zoom in">
           <ZoomIn className="w-4 h-4" />
         </button>
-
-        <button
-          onClick={handleReset}
-          className="p-2 bg-slate-800 hover:bg-slate-700 rounded ml-auto"
-          title="Reset view"
-        >
+        <button onClick={handleReset} className="p-2 bg-slate-800 hover:bg-slate-700 rounded ml-auto" title="Reset view">
           <Maximize2 className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Legend */}
-      <div className="text-xs text-slate-400 space-y-1">
-        <div>🔵 Blue Alliance • 🔴 Red Alliance</div>
-        <div>Right-click + drag to pan | Scroll wheel to zoom</div>
+      <div className="text-xs text-slate-400">
+        ⚪ Start &nbsp;●&nbsp; Current position &nbsp;·&nbsp; Right-click drag to pan
       </div>
     </div>
   );
 }
 
-/**
- * Standalone zone legend component
- */
 export function FieldZoneLegend({ zones }: { zones: FieldZone[] }) {
   return (
     <div className="space-y-2">
       {zones.map((zone) => (
         <div key={zone.name} className="flex items-center gap-2 text-sm">
-          <div
-            className="w-4 h-4 rounded"
-            style={{ backgroundColor: zone.color, opacity: 0.6 }}
-          />
+          <div className="w-4 h-4 rounded" style={{ backgroundColor: zone.color, opacity: 0.6 }} />
           <span className="text-slate-300">{zone.name}</span>
           {zone.scoring_points > 0 && (
             <span className="text-xs text-slate-500">({zone.scoring_points} pts)</span>

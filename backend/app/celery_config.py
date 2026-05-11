@@ -76,10 +76,12 @@ beat_schedule = {
         "schedule": int(os.getenv("TBA_BOOTSTRAP_INTERVAL_S", "3600")),
         "options": {"queue": "sync"},
     },
-    # CV pipeline poller — checks for matches with video_url pending processing (every 2 min)
+    # CV pipeline poller — checks for matches with video_url pending processing (every 10 min)
+    # Capped at 8 dispatches per run (one per worker). At ~5 min per video on CPU,
+    # 10 min gives workers time to finish before the next batch is queued.
     "queue-pending-videos": {
         "task": "auto_video_tasks.queue_pending_video_matches",
-        "schedule": int(os.getenv("VIDEO_POLL_INTERVAL_S", "120")),
+        "schedule": int(os.getenv("VIDEO_POLL_INTERVAL_S", "600")),
         "options": {"queue": "default"},
     },
     # Prediction cache refresh for active/upcoming events (every 10 minutes)

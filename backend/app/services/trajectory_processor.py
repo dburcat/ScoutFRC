@@ -40,28 +40,55 @@ class TrajectoryProcessor:
         Returns:
             Dict mapping team_id to trajectory data
         """
-        # Query all movement tracks for this match
+        # Query all movement tracks for this match — prefer field coords but
+        # fall back to pixel coords so visualization works without calibration
         tracks = self.db.query(MovementTrack).filter(
             MovementTrack.match_id == match_id,
-            MovementTrack.field_x.isnot(None),  # Has field coordinates
-            MovementTrack.field_y.isnot(None),
         ).order_by(MovementTrack.timestamp_ms).all()
 
         if not tracks:
             return {}
 
-        # Get match info for duration
-        match = self.db.query(Match).filter(Match.match_id == match_id).first()
-        match_duration_s = 150 if match is None else 150  # FRC match is always 150s
+        # Determine if we have field coordinates or need to use pixel fallback
+        has_field_coords = any(
+            t.field_x is not None and t.field_y is not None for t in tracks
+        )
 
-        # Group by team
+        # When no calibration matrix was used, normalize pixel coords to field dims
+        field = get_field_layout(2024)
+        pixel_xs = [t.pixel_x for t in tracks if t.pixel_x is not None]
+        pixel_ys = [t.pixel_y for t in tracks if t.pixel_y is not None]
+        px_min = min(pixel_xs, default=0)
+        px_max = max(pixel_xs, default=1920)
+        py_min = min(pixel_ys, default=0)
+        py_max = max(pixel_ys, default=1080)
+
+        def _coords(track: MovementTrack) -> tuple[float, float]:
+            if track.field_x is not None and track.field_y is not None:
+                return (track.field_x, track.field_y)
+            # Normalize pixel -> field feet
+            nx = (track.pixel_x - px_min) / max(px_max - px_min, 1)
+            ny = (track.pixel_y - py_min) / max(py_max - py_min, 1)
+            return (round(nx * field.width_ft, 2), round(ny * field.height_ft, 2))
+
+        # FRC matches are always 150s (15s auto + 135s teleop/endgame)
+
+        # Group by team_id when available; fall back to negative track_id as a
+        # synthetic key so unidentified robots still appear in the visualization
+        # instead of being silently dropped.
         trajectories_by_team: Dict[int, Dict] = {}
 
         for track in tracks:
-            if track.team_id not in trajectories_by_team:
-                trajectories_by_team[track.team_id] = {
-                    "team_id": track.team_id,
-                    "alliance": track.team_id,  # Could query for actual alliance
+            if track.team_id is not None:
+                group_key: int = track.team_id
+            else:
+                # Negative track_id never collides with a real team PK
+                group_key = -(track.track_id)
+
+            if group_key not in trajectories_by_team:
+                trajectories_by_team[group_key] = {
+                    "team_id": group_key,
+                    "alliance": "red",  # unknown; router overwrites from Alliance table
                     "all_coordinates": [],
                     "phases": {
                         "auto": [],
@@ -73,15 +100,16 @@ class TrajectoryProcessor:
                         "distance_traveled": 0.0,
                     },
                 }
+            team_id = group_key
 
             # Determine phase
             phase_name = self._get_phase_at_time(track.timestamp_ms / 1000.0)
 
-            coord = (track.field_x, track.field_y)
-            trajectories_by_team[track.team_id]["all_coordinates"].append(coord)
+            coord = _coords(track)
+            trajectories_by_team[team_id]["all_coordinates"].append(coord)
 
             if include_all_phases and phase_name:
-                trajectories_by_team[track.team_id]["phases"][phase_name].append(coord)
+                trajectories_by_team[team_id]["phases"][phase_name].append(coord)
 
         # Compute stats
         for team_id, traj in trajectories_by_team.items():

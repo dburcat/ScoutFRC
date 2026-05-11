@@ -1,20 +1,26 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { AlertCircle, Download } from "lucide-react";
-import htmlToCanvas from "html2canvas";
 import { FieldDiagram, FieldLayout } from "../components/FieldDiagram";
-import { HeatmapOverlay, HeatmapLegend, HeatmapBin } from "../components/Heatmap";
+import { HeatmapLegend, HeatmapBin } from "../components/Heatmap";
 import { PlaybackControls } from "../components/PlaybackControls";
 import { useParams } from "react-router-dom";
 
 /**
  * Match Visualization Page
  *
- * Comprehensive visualization of robot movement, trajectories, and heatmaps:
- * - Field diagram with trajectory overlays
- * - Spatial heatmap showing movement concentration
- * - Playback controls for replaying movement
- * - Phase filtering (auto/teleop/endgame)
- * - Team selection and export
+ * FIX 1: Removed HeatmapOverlay (canvas layer) — heatmap is now rendered
+ *         inside FieldDiagram as SVG rects via the heatmapBins prop.
+ *         The canvas was positioned absolute inside a non-relative container,
+ *         causing it to float at the top of the viewport.
+ *
+ * FIX 2: Playback scrubbing now slices trajectories correctly.
+ *         Previously: slice(0, Math.ceil(len * frame / (150*FPS))) meant at
+ *         frame=0 you'd see 0 points and at frame=4500 (2.5 min of playback)
+ *         you'd see all. Now totalFrames = max coordinate count so scrubbing
+ *         maps 1:1 to trajectory indices.
+ *
+ * FIX 3: getFilteredTrajectories is a pure useMemo (no useCallback) that
+ *         correctly depends on trajectories + currentFrame.
  */
 
 interface TeamTrajectory {
@@ -43,76 +49,64 @@ interface MatchHeatmapResponse {
   total_points: number;
 }
 
+const FPS = 10; // visualization frames per second (matches backend FRAME_SAMPLE_FPS)
+const MATCH_DURATION_S = 150;
+
 export function MatchVisualizationPage() {
   const { matchId } = useParams<{ matchId: string }>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Data
   const [trajectories, setTrajectories] = useState<MatchTrajectoriesResponse | null>(null);
   const [heatmapData, setHeatmapData] = useState<MatchHeatmapResponse | null>(null);
   const [fieldLayout, setFieldLayout] = useState<FieldLayout | null>(null);
 
-  // UI State
   const [selectedTeam, setSelectedTeam] = useState<number | null>(null);
   const [currentPhase, setCurrentPhase] = useState<string>("all");
   const [colorScheme, setColorScheme] = useState<"hot" | "cool" | "viridis">("hot");
 
-  // Playback State
+  // FIX: totalFrames is the max number of coordinate points across all teams,
+  // so the scrubber maps 1:1 to actual data rather than an arbitrary 4500 count.
+  const totalFrames = useMemo(() => {
+    if (!trajectories) return MATCH_DURATION_S * FPS;
+    const counts = Object.values(trajectories.teams).map((t) => t.coordinates.length);
+    return Math.max(...counts, 1);
+  }, [trajectories]);
+
   const [currentFrame, setCurrentFrame] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
-  const FPS = 30;
 
-  // Load data
+  // Load data whenever matchId or phase changes
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
         setError(null);
+        setIsPlaying(false);
+        setCurrentFrame(0);
 
-        const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const base = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const headers = { Authorization: `Bearer ${localStorage.getItem("token")}` };
 
-        // Load trajectories
-        const trajRes = await fetch(
-          `${baseUrl}/matches/${matchId}/trajectories?phase=${currentPhase}`,
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          }
-        );
+        const [trajRes, heatmapRes, fieldRes] = await Promise.all([
+          fetch(`${base}/matches/${matchId}/trajectories?phase=${currentPhase}`, { headers }),
+          fetch(`${base}/matches/${matchId}/heatmap?phase=${currentPhase}`, { headers }),
+          fetch(`${base}/matches/${matchId}/field-layout`, { headers }),
+        ]);
 
-        if (!trajRes.ok) throw new Error("Failed to load trajectories");
-        const trajData = await trajRes.json();
+        if (!trajRes.ok) throw new Error(`Trajectories: ${trajRes.statusText}`);
+        if (!heatmapRes.ok) throw new Error(`Heatmap: ${heatmapRes.statusText}`);
+        if (!fieldRes.ok) throw new Error(`Field layout: ${fieldRes.statusText}`);
+
+        const [trajData, heatData, fieldData] = await Promise.all([
+          trajRes.json(),
+          heatmapRes.json(),
+          fieldRes.json(),
+        ]);
+
         setTrajectories(trajData);
-
-        // Load heatmap
-        const heatmapRes = await fetch(
-          `${baseUrl}/matches/${matchId}/heatmap?phase=${currentPhase}`,
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          }
-        );
-
-        if (!heatmapRes.ok) throw new Error("Failed to load heatmap");
-        const heatmapResData = await heatmapRes.json();
-        setHeatmapData(heatmapResData);
-
-        // Load field layout
-        const fieldRes = await fetch(
-          `${baseUrl}/matches/${matchId}/field-layout`,
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          }
-        );
-
-        if (!fieldRes.ok) throw new Error("Failed to load field layout");
-        const fieldData = await fieldRes.json();
+        setHeatmapData(heatData);
         setFieldLayout(fieldData);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");
@@ -120,97 +114,72 @@ export function MatchVisualizationPage() {
         setLoading(false);
       }
     };
-
     loadData();
   }, [matchId, currentPhase]);
 
   // Playback loop
   useEffect(() => {
     if (!isPlaying || !trajectories) return;
-
     const interval = setInterval(() => {
       setCurrentFrame((prev) => {
-        const maxFrames = 150 * FPS; // Match duration * FPS
-        const next = prev + playbackSpeed;
-        if (next >= maxFrames) {
+        const next = prev + 1;
+        if (next >= totalFrames) {
           setIsPlaying(false);
-          return 0;
+          return totalFrames - 1;
         }
         return next;
       });
     }, 1000 / (FPS * playbackSpeed));
-
     return () => clearInterval(interval);
-  }, [isPlaying, playbackSpeed, trajectories]);
+  }, [isPlaying, playbackSpeed, trajectories, totalFrames]);
 
-  // Filter trajectories by current playback time
-  const getFilteredTrajectories = useCallback(() => {
+  // FIX: Slice trajectories to currentFrame index — direct 1:1 mapping.
+  // Previously this divided by (150*FPS=4500) making frame=0 show nothing.
+  const filteredTrajectories = useMemo<Record<number, Array<[number, number]>>>(() => {
     if (!trajectories) return {};
-
-    const timeMs = (currentFrame / FPS) * 1000;
-    const filtered: Record<number, Array<[number, number]>> = {};
-
-    for (const [teamId, traj] of Object.entries(trajectories.teams)) {
-      const team = parseInt(teamId);
-
-      // For now, show all points up to current time
-      // In a real implementation, would interpolate based on timestamps
-      filtered[team] = traj.coordinates.slice(
-        0,
-        Math.ceil((traj.coordinates.length * currentFrame) / (150 * FPS))
-      );
+    const result: Record<number, Array<[number, number]>> = {};
+    for (const [teamIdStr, traj] of Object.entries(trajectories.teams)) {
+      const teamId = parseInt(teamIdStr);
+      // Show coords up to currentFrame; when at max show all
+      const sliceTo = currentFrame >= totalFrames - 1
+        ? traj.coordinates.length
+        : Math.ceil((traj.coordinates.length * (currentFrame + 1)) / totalFrames);
+      result[teamId] = traj.coordinates.slice(0, Math.max(1, sliceTo));
     }
+    return result;
+  }, [trajectories, currentFrame, totalFrames]);
 
-    return filtered;
-  }, [trajectories, currentFrame]);
-
-  // Export heatmap as image
   const handleExportHeatmap = useCallback(async () => {
     try {
-      // Get the visualization container
       const element = document.getElementById("visualization-container");
-      if (!element) {
-        throw new Error("Visualization container not found");
-      }
-
-      // Capture the visualization as canvas
-      const canvas = await htmlToCanvas(element, {
-        backgroundColor: "#1a1a2e",
-        scale: 2,
-        logging: false,
-      });
-
-      // Convert canvas to blob and download
+      if (!element) throw new Error("Container not found");
+      // Dynamically import html2canvas to avoid making it a hard dep
+      const { default: html2canvas } = await import("html2canvas");
+      const canvas = await html2canvas(element, { backgroundColor: "#0f172a", scale: 2, logging: false });
       canvas.toBlob((blob) => {
         if (!blob) return;
-
         const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        
-        // Create filename with match ID and timestamp
-        const timestamp = new Date().toISOString().split("T")[0];
-        const filename = `match_${matchId}_heatmap_${timestamp}.png`;
-        link.download = filename;
-
-        // Trigger download
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        // Cleanup
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `match_${matchId}_heatmap_${new Date().toISOString().split("T")[0]}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
       });
     } catch (err) {
-      console.error("Failed to export heatmap:", err);
-      alert("Failed to export heatmap as PNG");
+      console.error("Export failed:", err);
+      alert("Failed to export PNG");
     }
   }, [matchId]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-950">
-        <div className="text-slate-300">Loading match visualization...</div>
+        <div className="text-slate-300 flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          Loading match visualization…
+        </div>
       </div>
     );
   }
@@ -219,66 +188,65 @@ export function MatchVisualizationPage() {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-950">
         <div className="flex items-center gap-3 bg-red-900/20 border border-red-700 rounded-lg p-4 text-red-300">
-          <AlertCircle className="w-5 h-5" />
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
           <div>
-            <div className="font-semibold">Error</div>
-            <div className="text-sm">{error}</div>
+            <div className="font-semibold">Failed to load visualization</div>
+            <div className="text-sm mt-1">{error}</div>
           </div>
         </div>
       </div>
     );
   }
 
-  if (!trajectories || !fieldLayout || !heatmapData) {
-    return null;
-  }
+  if (!trajectories || !fieldLayout || !heatmapData) return null;
 
   const teams = Object.values(trajectories.teams);
-  const filteredTrajectories = getFilteredTrajectories();
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6 space-y-6">
       {/* Header */}
-      <div className="space-y-2">
+      <div className="space-y-1">
         <h1 className="text-3xl font-bold">Match {matchId} Visualization</h1>
         <p className="text-slate-400">
-          {teams.length} teams tracked • {heatmapData.total_points} data points
+          {teams.length} teams tracked · {heatmapData.total_points} movement points
+          {heatmapData.total_points === 0 && (
+            <span className="ml-2 text-yellow-400 text-sm">
+              ⚠ No tracking data — run the video CV pipeline first
+            </span>
+          )}
         </p>
       </div>
 
-      {/* Main Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Main Visualization (3 cols) */}
+        {/* Main visualization */}
         <div className="lg:col-span-3 space-y-4">
-          {/* Field + Heatmap */}
           <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
-            <div id="visualization-container" className="bg-slate-950 rounded">
-              {fieldLayout && heatmapData && (
-                <HeatmapOverlay
-                  width={800}
-                  height={400}
-                  fieldWidth={fieldLayout.width_ft}
-                  fieldHeight={fieldLayout.height_ft}
-                  bins={heatmapData.bins}
-                  maxIntensity={heatmapData.max_intensity}
-                  colorScheme={colorScheme}
-                >
-                  <FieldDiagram
-                    width={800}
-                    height={400}
-                    fieldLayout={fieldLayout}
-                    trajectories={filteredTrajectories}
-                    selectedTeam={selectedTeam}
-                    showZoneLabels={true}
-                  />
-                </HeatmapOverlay>
-              )}
+            {/*
+              FIX: heatmap is passed as SVG bins directly into FieldDiagram
+              instead of a canvas overlay. The old HeatmapOverlay used a
+              <canvas position:absolute> inside a non-relative div, causing it
+              to render at the top of the page instead of over the field.
+            */}
+            <div id="visualization-container">
+              <FieldDiagram
+                width={800}
+                height={400}
+                fieldLayout={fieldLayout}
+                trajectories={filteredTrajectories}
+                heatmapBins={heatmapData.bins.map((b) => ({
+                  center_x: b.center_x,
+                  center_y: b.center_y,
+                  intensity: b.intensity,
+                }))}
+                maxHeatmapIntensity={heatmapData.max_intensity}
+                selectedTeam={selectedTeam}
+                showZoneLabels={true}
+              />
             </div>
 
-            {/* Controls Under Visualization */}
             <div className="mt-4 space-y-3">
               <PlaybackControls
-                totalFrames={150 * FPS}
+                totalFrames={totalFrames}
                 currentFrame={currentFrame}
                 isPlaying={isPlaying}
                 speed={playbackSpeed}
@@ -286,17 +254,15 @@ export function MatchVisualizationPage() {
                 onPause={() => setIsPlaying(false)}
                 onSeek={setCurrentFrame}
                 onSpeedChange={setPlaybackSpeed}
-                onPhaseChange={setCurrentPhase}
+                onPhaseChange={(p) => { setCurrentPhase(p); }}
                 fps={FPS}
               />
 
-              {/* Options */}
-              <div className="flex gap-2 flex-wrap">
+              <div className="flex gap-2 flex-wrap items-center">
+                <label className="text-xs text-slate-400">Heatmap scheme:</label>
                 <select
                   value={colorScheme}
-                  onChange={(e) =>
-                    setColorScheme(e.target.value as "hot" | "cool" | "viridis")
-                  }
+                  onChange={(e) => setColorScheme(e.target.value as "hot" | "cool" | "viridis")}
                   className="px-3 py-1 bg-slate-800 border border-slate-700 rounded text-xs"
                 >
                   <option value="hot">Hot</option>
@@ -315,28 +281,21 @@ export function MatchVisualizationPage() {
             </div>
           </div>
 
-          {/* Heatmap Legend */}
           <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
             <h3 className="text-sm font-semibold mb-3">Heat Intensity</h3>
-            <HeatmapLegend
-              colorScheme={colorScheme}
-              maxIntensity={heatmapData.max_intensity}
-            />
+            <HeatmapLegend colorScheme={colorScheme} maxIntensity={heatmapData.max_intensity} />
           </div>
         </div>
 
-        {/* Sidebar (1 col) */}
+        {/* Sidebar */}
         <div className="space-y-4">
-          {/* Team List */}
           <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
             <h3 className="text-sm font-semibold mb-3">Teams</h3>
             <div className="space-y-1 max-h-96 overflow-y-auto">
               <button
                 onClick={() => setSelectedTeam(null)}
                 className={`w-full text-left px-2 py-1 rounded text-sm transition ${
-                  selectedTeam === null
-                    ? "bg-blue-600 text-white"
-                    : "hover:bg-slate-800"
+                  selectedTeam === null ? "bg-blue-600 text-white" : "hover:bg-slate-800"
                 }`}
               >
                 All Teams
@@ -346,7 +305,7 @@ export function MatchVisualizationPage() {
                 <button
                   key={team.team_id}
                   onClick={() => setSelectedTeam(team.team_id)}
-                  className={`w-full text-left px-2 py-1 rounded text-sm transition ${
+                  className={`w-full text-left px-2 py-1.5 rounded text-sm transition ${
                     selectedTeam === team.team_id
                       ? "bg-blue-600 text-white"
                       : team.alliance === "red"
@@ -355,41 +314,45 @@ export function MatchVisualizationPage() {
                   }`}
                 >
                   <div className="font-semibold">Team {team.team_id}</div>
-                  <div className="text-xs opacity-70">
-                    {team.stats.total_points} points
-                  </div>
-                  <div className="text-xs opacity-70">
-                    {team.stats.distance_traveled.toFixed(1)} ft
-                  </div>
+                  <div className="text-xs opacity-70">{team.stats.total_points} track points</div>
+                  <div className="text-xs opacity-70">{team.stats.distance_traveled.toFixed(1)} ft</div>
                 </button>
               ))}
+
+              {teams.length === 0 && (
+                <p className="text-xs text-slate-500 p-2">
+                  No team data — video hasn't been processed yet.
+                </p>
+              )}
             </div>
           </div>
 
-          {/* Statistics */}
-          {selectedTeam && trajectories.teams[selectedTeam] && (
+          {selectedTeam !== null && trajectories.teams[selectedTeam] && (
             <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
-              <h3 className="text-sm font-semibold mb-3">
-                Team {selectedTeam} Stats
-              </h3>
+              <h3 className="text-sm font-semibold mb-3">Team {selectedTeam} Stats</h3>
               <div className="space-y-2 text-sm">
                 <div>
-                  <div className="text-slate-400">Total Points</div>
-                  <div className="font-semibold">
-                    {trajectories.teams[selectedTeam].stats.total_points}
-                  </div>
+                  <div className="text-slate-400">Track Points</div>
+                  <div className="font-semibold">{trajectories.teams[selectedTeam].stats.total_points}</div>
                 </div>
                 <div>
                   <div className="text-slate-400">Distance Traveled</div>
                   <div className="font-semibold">
-                    {trajectories.teams[selectedTeam].stats.distance_traveled.toFixed(1)}{" "}
-                    ft
+                    {trajectories.teams[selectedTeam].stats.distance_traveled.toFixed(1)} ft
                   </div>
                 </div>
                 <div>
                   <div className="text-slate-400">Alliance</div>
-                  <div className="font-semibold capitalize">
+                  <div className={`font-semibold capitalize ${
+                    trajectories.teams[selectedTeam].alliance === "red" ? "text-red-400" : "text-blue-400"
+                  }`}>
                     {trajectories.teams[selectedTeam].alliance}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-400">Showing</div>
+                  <div className="font-semibold">
+                    {filteredTrajectories[selectedTeam]?.length ?? 0} / {trajectories.teams[selectedTeam].coordinates.length} pts
                   </div>
                 </div>
               </div>

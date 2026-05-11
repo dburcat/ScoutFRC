@@ -82,7 +82,7 @@ def get_match_trajectories(
     - Field dimensions and metadata
     """
     # Verify match exists
-    match = db.query(Match).filter(Match.id == match_id).first()
+    match = db.query(Match).filter(Match.match_id == match_id).first()
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
 
@@ -102,12 +102,24 @@ def get_match_trajectories(
         for team_id in trajectories:
             trajectories[team_id]["coordinates"] = phase_trajectories.get(team_id, [])
 
+    # Build team_id -> alliance color map from DB
+    from app.models.alliance import Alliance
+    from app.models.robot_performance import RobotPerformance
+    team_alliance_color: dict[int, str] = {}
+    alliances = db.query(Alliance).filter(Alliance.match_id == match_id).all()
+    for alliance in alliances:
+        perfs = db.query(RobotPerformance).filter(
+            RobotPerformance.alliance_id == alliance.alliance_id
+        ).all()
+        for perf in perfs:
+            team_alliance_color[perf.team_id] = alliance.color
+
     # Format response
     teams_data = {}
     for team_id, traj in trajectories.items():
         teams_data[team_id] = TeamTrajectory(
             team_id=team_id,
-            alliance="red" if team_id % 2 == 0 else "blue",  # Simple heuristic
+            alliance=team_alliance_color.get(team_id, "red"),
             coordinates=traj["all_coordinates"],
             stats=traj["stats"],
         )
@@ -143,7 +155,7 @@ def get_match_heatmap(
     - `max_intensity`: Maximum count in any bin
     """
     # Verify match exists
-    match = db.query(Match).filter(Match.id == match_id).first()
+    match = db.query(Match).filter(Match.match_id == match_id).first()
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
 
@@ -215,7 +227,7 @@ def get_match_field_layout(
     Useful for rendering field diagram and scoring zones.
     """
     # Verify match exists
-    match = db.query(Match).filter(Match.id == match_id).first()
+    match = db.query(Match).filter(Match.match_id == match_id).first()
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
 

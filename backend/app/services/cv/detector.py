@@ -1,9 +1,8 @@
 """
-YOLOv8 robot detection wrapper.
+YOLOv8 robot detection wrapper for FRC robots.
 
 Uses a fine-tuned YOLOv8 model to detect FRC robots in video frames.
-Falls back to YOLOv8n (general) if no fine-tuned model is available.
-GPU is used automatically when available; CPU fallback is transparent.
+Falls back to yolov8n.pt (COCO) if no fine-tuned model is available.
 """
 
 from __future__ import annotations
@@ -11,28 +10,62 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from .types import Detection
 
 logger = logging.getLogger(__name__)
 
-# Classes the fine-tuned model is trained to detect
-SUPPORTED_CLASSES: dict[int, str] = {
+DUAL_CLASS_MAP: dict[int, str] = {
     0: "robot_red",
     1: "robot_blue",
-    2: "game_piece",
-    3: "field_element",
 }
 
-# When using pretrained COCO weights as placeholder, remap 'person' → robot
-# (useful for smoke-testing without a fine-tuned model)
-COCO_FALLBACK_CLASSES: dict[int, str] = {
-    0: "robot_blue",   # person class → treat as blue robot for testing
+SINGLE_CLASS_MAP: dict[int, str] = {
+    0: "robot",
 }
 
-CONFIDENCE_THRESHOLD = 0.45
-IOU_THRESHOLD = 0.50
+COCO_FALLBACK_MAP: dict[int, str] = {
+    0: "robot_blue",
+}
+
+CONFIDENCE_THRESHOLD = 0.20
+IOU_THRESHOLD = 0.45
+
+_RED_LOW1  = np.array([0,   120, 70],  dtype=np.uint8)
+_RED_HIGH1 = np.array([10,  255, 255], dtype=np.uint8)
+_RED_LOW2  = np.array([170, 120, 70],  dtype=np.uint8)
+_RED_HIGH2 = np.array([180, 255, 255], dtype=np.uint8)
+_BLUE_LOW  = np.array([100, 100, 70],  dtype=np.uint8)
+_BLUE_HIGH = np.array([130, 255, 255], dtype=np.uint8)
+
+
+def _alliance_from_bumper(frame: np.ndarray, bbox: np.ndarray) -> str:
+    """Determine alliance by analysing bumper color in the bottom third of the bbox."""
+    x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+    h = y2 - y1
+    crop_y1 = max(0, y2 - h // 3)
+    crop: np.ndarray = frame[crop_y1:y2, x1:x2]
+    if crop.size == 0:
+        return "robot_unknown"
+
+    hsv: np.ndarray = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    red1: np.ndarray = cv2.inRange(hsv, _RED_LOW1, _RED_HIGH1)
+    red2: np.ndarray = cv2.inRange(hsv, _RED_LOW2, _RED_HIGH2)
+    red_mask: np.ndarray = cv2.bitwise_or(red1, red2)
+    blue_mask: np.ndarray = cv2.inRange(hsv, _BLUE_LOW, _BLUE_HIGH)
+
+    red_px  = int(cv2.countNonZero(red_mask))
+    blue_px = int(cv2.countNonZero(blue_mask))
+    total   = crop.shape[0] * crop.shape[1]
+    threshold = total * 0.03
+
+    if red_px > blue_px and red_px > threshold:
+        return "robot_red"
+    if blue_px > red_px and blue_px > threshold:
+        return "robot_blue"
+    return "robot_unknown"
 
 
 class RobotDetector:
@@ -41,14 +74,10 @@ class RobotDetector:
 
     Parameters
     ----------
-    model_path:
-        Path to a fine-tuned .pt or .onnx weights file.
-        If the path does not exist, downloads YOLOv8n (pretrained COCO)
-        as a placeholder — useful in development before fine-tuning.
-    device:
-        "auto" | "cuda" | "cpu"
-    confidence_threshold:
-        Minimum detection confidence (0–1).
+    model_path : path to fine-tuned .pt weights file.
+                 If missing, falls back to yolov8n.pt (COCO placeholder).
+    device     : 'auto' | 'cuda' | 'cpu'
+    confidence_threshold : minimum detection confidence (0–1).
     """
 
     def __init__(
@@ -59,41 +88,65 @@ class RobotDetector:
     ) -> None:
         try:
             import torch
-            from ultralytics import YOLO
+            from ultralytics import YOLO as _YOLO
         except ImportError as exc:
             raise ImportError(
-                "ultralytics and torch are required for video processing. "
-                "Install them with: pip install ultralytics torch"
+                "ultralytics and torch are required. "
+                "Install with: pip install ultralytics torch"
             ) from exc
 
         if device == "auto":
+            import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self.device = device
         self.confidence_threshold = confidence_threshold
-        self._fine_tuned = Path(model_path).exists()
+
+        model_path = Path(model_path)
+        self._fine_tuned = model_path.exists() and model_path.name != "yolov8n.pt"
 
         if not self._fine_tuned:
             logger.warning(
-                "Model file '%s' not found — loading pretrained YOLOv8n as placeholder. "
-                "Detection results will be inaccurate until a fine-tuned model is provided.",
+                "Model '%s' not found — using COCO placeholder yolov8n.pt. "
+                "Set YOLO_MODEL_PATH to a fine-tuned FRC model for accurate results.",
                 model_path,
             )
-            model_path = "yolov8n.pt"
+            load_path = "yolov8n.pt"
+        else:
+            load_path = str(model_path)
 
-        logger.info("Loading YOLO model from '%s' on device '%s'", model_path, device)
-        self.model = YOLO(str(model_path))
+        logger.info("Loading YOLO model from '%s' on device '%s'", load_path, device)
+        from ultralytics import YOLO as _YOLO
+        self.model = _YOLO(load_path)
         self.model.to(device)
 
-        # Choose class map based on whether we have a fine-tuned model
-        self._class_map = SUPPORTED_CLASSES if self._fine_tuned else COCO_FALLBACK_CLASSES
+        if self._fine_tuned:
+            names: dict[int, str] = self.model.names  # type: ignore[assignment]
+            logger.info("Model classes: %s", names)
+
+            if names.get(0) in ("robot_red", "robot_blue"):
+                # Dual-class model with alliance labels
+                self._class_map = DUAL_CLASS_MAP
+                self._single_class = False
+                logger.info("Dual-class model detected (robot_red / robot_blue)")
+            elif "robot_red" in names.values() or "robot_blue" in names.values():
+                self._class_map = {k: v for k, v in names.items() if v in ("robot_red", "robot_blue")}
+                self._single_class = False
+                logger.info("Dual-class model (reordered): %s", self._class_map)
+            else:
+                # Single-class or remapped model (e.g. trained with classes=[1] which
+                # remaps robot→0 but may keep original name like 'note').
+                # Treat ALL detections from a fine-tuned single-class model as robots
+                # and use bumper color to assign alliance.
+                self._class_map = {k: "robot" for k in names}
+                self._single_class = True
+                logger.info("Fine-tuned single-class model — treating all detections as robots, alliance via bumper color")
+        else:
+            self._class_map = COCO_FALLBACK_MAP
+            self._single_class = False
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
-        """
-        Run inference on a single BGR frame.
-
-        Returns a list of Detection objects for all supported classes.
-        """
+        """Run inference on a single BGR frame."""
         results = self.model(
             frame,
             conf=self.confidence_threshold,
@@ -106,20 +159,22 @@ class RobotDetector:
             class_id = int(box.cls)
             class_name = self._class_map.get(class_id)
             if class_name is None:
-                continue  # Ignore unsupported classes
+                continue
 
-            detections.append(
-                Detection(
-                    bbox=box.xyxy[0].cpu().numpy(),
-                    confidence=float(box.conf),
-                    class_id=class_id,
-                    class_name=class_name,
-                )
-            )
+            bbox: np.ndarray = box.xyxy[0].cpu().numpy()
+
+            if self._single_class:
+                class_name = _alliance_from_bumper(frame, bbox)
+
+            detections.append(Detection(
+                bbox=bbox,
+                confidence=float(box.conf),
+                class_id=class_id,
+                class_name=class_name,
+            ))
 
         return detections
 
     @property
     def is_fine_tuned(self) -> bool:
-        """True if using a fine-tuned FRC model; False if using COCO placeholder."""
         return self._fine_tuned

@@ -233,3 +233,8 @@ scouterfrc-backup.sql
 # tailwind
 node_modules/
 dist/
+
+#Roboflow
+FRC-2024-1/
+frc_model/
+runs/

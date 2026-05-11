@@ -36,20 +36,28 @@ def download_video_temp(video_url: str, match_id: int):
     # temp file is gone here — no disk accumulation
     """
     tmp_path: Path | None = None
+    tmp_dir: Path | None = None
     try:
-        tmp_path = _download(video_url, match_id)
+        tmp_path, tmp_dir = _download(video_url, match_id)
         yield tmp_path
     finally:
-        if tmp_path and tmp_path.exists():
+        if tmp_dir and tmp_dir.exists():
             try:
-                tmp_path.unlink()
-                logger.debug("Deleted temp video: %s", tmp_path)
+                import shutil as _shutil
+                _shutil.rmtree(tmp_dir)
+                logger.debug("Deleted temp video dir: %s", tmp_dir)
             except Exception as exc:
-                logger.warning("Failed to delete temp video %s: %s", tmp_path, exc)
+                logger.warning("Failed to delete temp video dir %s: %s", tmp_dir, exc)
 
 
-def _download(video_url: str, match_id: int) -> Path:
-    """Download video to a named temp file. Returns the Path."""
+def _ffmpeg_available() -> bool:
+    """Check if ffmpeg is installed and accessible on PATH."""
+    import shutil
+    return shutil.which("ffmpeg") is not None
+
+
+def _download(video_url: str, match_id: int) -> tuple[Path, Path]:
+    """Download video to a temp directory. Returns (file_path, dir_path)."""
     try:
         import yt_dlp  # type: ignore[import-untyped]
         from yt_dlp.utils import match_filter_func, DownloadError  # type: ignore[import-untyped]
@@ -59,22 +67,32 @@ def _download(video_url: str, match_id: int) -> Path:
             "and run pip install -r requirements.txt."
         )
 
-    # Use a named temp file so we know the path before yt-dlp writes it.
-    # delete=False so yt-dlp can write to it; we delete it ourselves later.
-    fd, tmp_str = tempfile.mkstemp(suffix=".mp4", prefix=f"match_{match_id}_")
-    os.close(fd)  # yt-dlp opens its own handle
-    tmp_path = Path(tmp_str)
+    import tempfile as _tempfile
+
+    # Use a temp *directory* so yt-dlp can choose the filename+extension freely.
+    # We then glob for whatever it wrote rather than guessing the extension.
+    tmp_dir = Path(_tempfile.mkdtemp(prefix=f"match_{match_id}_"))
+    tmp_path: Path | None = None  # resolved after download
 
     # Build options as Any to avoid type-checker complaints about yt-dlp's
     # untyped params dict — the values are all correct at runtime.
     from typing import Any
     ydl_opts: dict[str, Any] = {
-        # Write to our specific temp path (without extension — yt-dlp adds it)
-        "outtmpl": str(tmp_path.with_suffix("")),
-        # Prefer mp4, fall back to best available
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        # Merge into mp4 container
-        "merge_output_format": "mp4",
+        # Let yt-dlp pick the filename; we discover it via glob afterward.
+        "outtmpl": str(tmp_dir / "video.%(ext)s"),
+        # Explicitly require H.264 (avc1) video — YouTube also serves AV1 inside
+        # .mp4 containers, and OpenCV on ARM64/Linux cannot software-decode AV1.
+        # When AV1 is selected, cap.read() returns False on every frame and
+        # 0 tracks are produced. The fallback chain ensures we always get H.264.
+        "format": (
+            "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]"
+            "/bestvideo[vcodec^=avc1]+bestaudio"
+            "/best[vcodec^=avc1][ext=mp4]"
+            "/best[ext=mp4]/best"
+            if _ffmpeg_available()
+            else "best[vcodec^=avc1][ext=mp4]/best[vcodec^=avc1]/best[ext=mp4]/best"
+        ),
+        **({"merge_output_format": "mp4"} if _ffmpeg_available() else {}),
         # Don't print progress to stdout
         "quiet": True,
         "no_warnings": True,
@@ -90,25 +108,31 @@ def _download(video_url: str, match_id: int) -> Path:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore[arg-type]
             ydl.download([video_url])
     except DownloadError as exc:
-        # Clean up the empty temp file on failure
-        if tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
+        # Clean up the temp directory on failure
+        import shutil as _shutil
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
         raise VideoDownloadError(f"yt-dlp failed for {video_url}: {exc}") from exc
 
-    # yt-dlp may have written to the path without the suffix we gave
-    # (it strips and re-adds extensions). Check both possibilities.
-    if not tmp_path.exists():
-        # yt-dlp wrote match_123_.mp4 instead of match_123_.mp4 (no double suffix)
-        alt = tmp_path.with_suffix("").with_suffix(".mp4")
-        if alt.exists():
-            tmp_path = alt
-        else:
-            raise VideoDownloadError(
-                f"yt-dlp finished but output file not found at {tmp_path}"
-            )
+    # Discover what yt-dlp actually wrote — it controls the extension
+    written = list(tmp_dir.glob("video.*"))
+    if not written:
+        import shutil as _shutil
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise VideoDownloadError(
+            f"yt-dlp finished but output file not found in {tmp_dir} — "
+            "video may be private, age-restricted, or unavailable."
+        )
+    tmp_path = written[0]
 
     size_mb = tmp_path.stat().st_size / (1024 * 1024)
+    if size_mb == 0:
+        import shutil as _shutil
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise VideoDownloadError(
+            f"yt-dlp produced a 0-byte file for {video_url} — "
+            "video may be private, age-restricted, or unavailable."
+        )
     logger.info(
         "Downloaded video for match %d: %.1f MB → %s", match_id, size_mb, tmp_path
     )
-    return tmp_path
+    return tmp_path, tmp_dir
