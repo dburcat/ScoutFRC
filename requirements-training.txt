@@ -1,0 +1,16 @@
+# Minimal requirements for FRC model training
+# This is a lightweight version for training on remote computers
+
+# Core ML/Vision
+torch>=2.0.0
+torchvision>=0.15.0
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+
+# Data processing
+numpy>=1.24.0
+PyYAML>=6.0
+Pillow>=9.0.0
+
+# Utilities
+python-dotenv==1.0.0
