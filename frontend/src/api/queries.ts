@@ -102,9 +102,10 @@ export const userAlliancesQuery = () => ({
 });
 
 // ── Scouting Observations ──────────────────────────────────────────────────
-export const scoutingObservationsQuery = () => ({
-  queryKey: ['scouting-observations'] as const,
+export const scoutingObservationsQuery = (userId?: number) => ({
+  queryKey: ['scouting-observations', userId] as const,
   queryFn:  () => api.get('/scouting_observations/').then(r => r.data),
   refetchInterval: 60_000,
   staleTime: 45_000,
+  enabled: userId != null,
 });
