@@ -183,7 +183,7 @@ export default function TeamProfilePage() {
       const res = await api.get<Event[]>('/events/?limit=100000');
       return res.data;
     },
-    staleTime: 5 * 60_000,
+    staleTime: 10 * 60_000,
   });
 
   // Build event_id → season_year and event_id → name lookups
@@ -215,12 +215,13 @@ export default function TeamProfilePage() {
     return Array.from(yrs).sort((a, b) => b - a); // newest first
   }, [matchesWithYear]);
 
-  // Default to latest year with data
+  // Default to latest year with data (availableYears is sorted newest-first)
   const [selectedYear, setSelectedYear] = useState<number | 'all' | null>(null);
 
   useEffect(() => {
+    // Only set once — when we first get year data and user hasn't chosen anything yet
     if (availableYears.length > 0 && selectedYear === null) {
-      setSelectedYear(availableYears[0]); // latest year
+      setSelectedYear(availableYears[0]);
     }
   }, [availableYears]);
 
@@ -229,9 +230,10 @@ export default function TeamProfilePage() {
     ? [...availableYears, 'all']
     : ['all'];
 
-  // Filter matches by selected year
+  // Filter matches by selected year; return empty while year hasn't resolved yet
   const filteredMatches = useMemo(() => {
-    if (selectedYear === 'all' || selectedYear === null) return matchesWithYear;
+    if (selectedYear === null) return [];
+    if (selectedYear === 'all') return matchesWithYear;
     return matchesWithYear.filter(m => m.season_year === selectedYear);
   }, [matchesWithYear, selectedYear]);
 
@@ -586,17 +588,15 @@ export default function TeamProfilePage() {
             </p>
           </div>
 
-          {isLoading ? (
-            <div className="space-y-2">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="h-10 bg-app-card rounded animate-pulse" />
-              ))}
+          {isLoading || selectedYear === null ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="w-5 h-5 border-2 border-brand border-t-transparent rounded-full animate-spin" />
             </div>
           ) : filteredMatches.length === 0 ? (
             <div className="bg-app-card border border-app-border rounded-lg p-8 text-center">
               <Swords size={20} className="text-slate-700 mx-auto mb-2" />
               <p className="text-slate-500 text-sm">
-                {selectedYear === 'all' || !selectedYear
+                {selectedYear === 'all'
                   ? 'No matches found'
                   : `No matches in ${selectedYear}`}
               </p>

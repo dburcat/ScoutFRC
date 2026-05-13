@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import api from '@/api/client';
 import { User, AuthResponse } from '@/types/auth';
 
@@ -14,12 +15,12 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const checkUser = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
-        // No token — skip the network call entirely, resolve immediately
         setIsLoading(false);
         return;
       }
@@ -30,19 +31,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         localStorage.removeItem('token');
         setUser(null);
       } finally {
-        // Always resolve, even if the request hangs or errors
         setIsLoading(false);
       }
     };
 
-    // Safety net: if /me never responds, unblock the app after 5s
     const timeout = setTimeout(() => setIsLoading(false), 5000);
     checkUser().then(() => clearTimeout(timeout));
-
     return () => clearTimeout(timeout);
   }, []);
 
   const login = async (data: AuthResponse) => {
+    // Clear any cached data from a previous user before setting the new one
+    queryClient.clear();
     localStorage.setItem('token', data.access_token);
     const response = await api.get<User>('/me');
     setUser(response.data);
@@ -51,6 +51,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = () => {
     localStorage.removeItem('token');
     setUser(null);
+    // Wipe all cached query data so the next user starts fresh
+    queryClient.clear();
   };
 
   return (

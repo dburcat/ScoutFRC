@@ -75,7 +75,7 @@ export default function ObservationsPage() {
   };
 
   const { data: observations = [], isLoading, error, isFetching } = useQuery({
-    ...scoutingObservationsQuery(),
+    ...scoutingObservationsQuery(user?.user_id),
     // Cast because the query returns `any` from the API
   });
 

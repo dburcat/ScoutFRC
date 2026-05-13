@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
 import Sidebar from '@/pages/Sidebar';
 import LoginPage from '@/pages/LoginPage';
+import RegisterPage from '@/pages/RegisterPage';
 import DashboardPage from '@/pages/DashboardPage';
 import EventsPage from '@/pages/EventsPage';
 import TeamsPage from '@/pages/TeamsPage';
@@ -149,7 +150,8 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login"    element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
       {/* All other routes get the shell — individual routes guard themselves */}
       <Route path="/*" element={<AppShell />} />
     </Routes>

@@ -48,6 +48,8 @@ origins = [
     "http://localhost:5174",   # Vite sometimes uses 5174 if 5173 is taken
     "http://localhost:3000",   # CRA / other dev servers
     "http://localhost:4173",   # Vite preview
+    "http://192.168.88.173:5174",  # Local network access (adjust IP as needed)
+    "http://10.0.0.82:5174",  # Local network access (adjust IP as needed)
 ]
 
 app.add_middleware(
