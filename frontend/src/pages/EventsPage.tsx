@@ -115,6 +115,11 @@ function EventListItem({
           <p className="text-[13px] font-medium text-white">{event.match_count || '—'}</p>
           <p className="text-[10px] text-slate-600">matches</p>
         </div>
+        {/* Mobile-only inline counts */}
+        <div className="flex flex-col items-end gap-0.5 sm:hidden text-[10px] text-slate-500">
+          <span>{event.team_count || '—'} teams</span>
+          <span>{event.match_count || '—'} matches</span>
+        </div>
         <ChevronRight size={14} className={clsx(
           'transition-colors', selected ? 'text-brand' : 'text-slate-700'
         )} />
@@ -468,14 +473,14 @@ useEffect(() => {
     const startPos = window.pageYOffset;
     const distance = targetPos - startPos;
     const duration = 1500; // 1.5 seconds - change this to slow it down!
-    let start = null;
+    let start: number | null = null;
 
-    function step(timestamp) {
+    function step(timestamp: number) {
       if (!start) start = timestamp;
       const progress = timestamp - start;
       
       // Easing function: make it feel natural
-      const easeInOutQuad = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+      const easeInOutQuad = (t: number) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
       const percentage = Math.min(progress / duration, 1);
       
       window.scrollTo(0, startPos + distance * easeInOutQuad(percentage));
@@ -534,7 +539,7 @@ useEffect(() => {
       {/* Body */}
       <div className="flex flex-1 min-h-0 gap-4 p-5 overflow-hidden">
         {/* Event list */}
-        <div className="w-80 flex-shrink-0 flex flex-col gap-2 overflow-y-auto pr-1">
+        <div className="w-full md:w-80 md:flex-shrink-0 flex flex-col gap-2 overflow-y-auto pr-1">
           {isLoading ? (
             [...Array(5)].map((_, i) => (
               <div key={i} className="h-20 bg-app-card border border-app-border rounded-lg animate-pulse" />
@@ -555,11 +560,9 @@ useEffect(() => {
                 event={event}
                 selected={event.event_id === selectedEventId}
                 onClick={() => {
-                  setSelectedEventId(prev => {
-                    const nextEventId = prev === event.event_id ? null : event.event_id;
-                    updateUrlState(selectedYear, nextEventId);
-                    return nextEventId;
-                  });
+                  const nextEventId = selectedEventId === event.event_id ? null : event.event_id;
+                  setSelectedEventId(nextEventId);
+                  updateUrlState(selectedYear, nextEventId);
                 }}
               />
             ))
@@ -567,7 +570,7 @@ useEffect(() => {
         </div>
 
         {/* Detail panel */}
-        <div ref={detailPanelRef} className="flex-1 min-w-0 flex flex-col">
+        <div ref={detailPanelRef} className="hidden md:flex flex-1 min-w-0 flex-col">
           {selectedEvent ? (
             <EventDetailPanel event={selectedEvent} />
           ) : (
@@ -607,6 +610,34 @@ useEffect(() => {
           )}
         </div>
       </div>
+
+      {/* Mobile bottom sheet — shown when an event is selected, hidden on md+ */}
+      {selectedEvent && (
+        <div className="md:hidden fixed inset-0 z-40 flex flex-col justify-end">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => { setSelectedEventId(null); updateUrlState(selectedYear, null); }}
+          />
+          {/* Sheet */}
+          <div className="relative bg-app-sidebar border-t border-app-border rounded-t-2xl max-h-[85vh] flex flex-col shadow-2xl">
+            {/* Handle + close */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-app-border flex-shrink-0">
+              <div className="w-8 h-1 rounded-full bg-app-border absolute left-1/2 -translate-x-1/2 top-2" />
+              <p className="text-sm font-medium text-white truncate pr-8">{selectedEvent.name}</p>
+              <button
+                onClick={() => { setSelectedEventId(null); updateUrlState(selectedYear, null); }}
+                className="text-slate-500 hover:text-white transition-colors flex-shrink-0"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <EventDetailPanel event={selectedEvent} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
