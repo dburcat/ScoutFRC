@@ -83,7 +83,7 @@ services:
       # FRC 2024 fine-tuned model (works for 2026 game similar mechanics)
       # Note: base yolov8s doesn't know what FRC robots are — needs FRC-specific training
       # TODO: Retrain on 2026 actual match footage for better quality
-      YOLO_MODEL_PATH: /app/models/frc_robot_detector.pt
+      YOLO_MODEL_PATH: /app/models/frc_robot_detector_improved.pt
       # Reduce memory by disabling EasyOCR during video processing
       # (team identification can be done separately once tracking works)
       DISABLE_OCR: "true"

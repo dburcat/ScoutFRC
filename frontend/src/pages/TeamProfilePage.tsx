@@ -24,6 +24,38 @@ const TOOLTIP_STYLE = {
   },
 };
 
+// ── Custom rich tooltip ───────────────────────────────────────────────────────
+function ChartTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload;
+  if (!d) return null;
+  const allianceHex = d.allianceColor === 'red' ? '#ef4444' : d.allianceColor === 'blue' ? '#3b82f6' : null;
+  const scores = payload.map((p: any) => {
+    const isAllianceScore = p.dataKey === 'allianceScore';
+    const color = isAllianceScore && allianceHex ? allianceHex : (p.color ?? '#94a3b8');
+    return (
+      <div key={p.dataKey} className="flex items-center gap-2 justify-between">
+        <span style={{ color }}>{p.name ?? p.dataKey}</span>
+        <span className="font-mono font-medium text-white">{p.value ?? 0}</span>
+      </div>
+    );
+  });
+  return (
+    <div style={{
+      backgroundColor: '#1e293b',
+      border: '1px solid #475569',
+      borderRadius: '0.5rem',
+      padding: '10px 14px',
+      fontSize: '12px',
+      minWidth: '180px',
+    }}>
+      <p className="text-white font-medium mb-1">{d.label}</p>
+      <p className="text-slate-400 text-[11px] mb-2 truncate max-w-[200px]">{d.eventName}</p>
+      <div className="space-y-1">{scores}</div>
+    </div>
+  );
+}
+
 // ── Year selector dropdown ─────────────────────────────────────────────────────
 function YearSelector({
   years,
@@ -154,10 +186,16 @@ export default function TeamProfilePage() {
     staleTime: 5 * 60_000,
   });
 
-  // Build event_id → season_year lookup
+  // Build event_id → season_year and event_id → name lookups
   const eventYearMap = useMemo(() => {
     const map = new Map<number, number>();
     allEvents.forEach(e => map.set(e.event_id, e.season_year));
+    return map;
+  }, [allEvents]);
+
+  const eventNameMap = useMemo(() => {
+    const map = new Map<number, string>();
+    allEvents.forEach(e => map.set(e.event_id, e.name));
     return map;
   }, [allEvents]);
 
@@ -225,15 +263,38 @@ export default function TeamProfilePage() {
 
   // ── Chart data ────────────────────────────────────────────────────────────
   const chartData = useMemo(() => {
+    // Build event_id → start_date for grouping sort
+    const eventStartMap = new Map<number, string>();
+    allEvents.forEach(e => eventStartMap.set(e.event_id, e.start_date));
+
     return [...filteredMatches]
-      .sort((a, b) => (a.match_number ?? 0) - (b.match_number ?? 0))
-      .map(m => {
+      .sort((a, b) => {
+        // Primary: group by event (sorted by event start date)
+        const aStart = eventStartMap.get(a.event_id) ?? '';
+        const bStart = eventStartMap.get(b.event_id) ?? '';
+        if (aStart !== bStart) return aStart.localeCompare(bStart);
+        // Secondary: within same event, sort by match type order then match number
+        const typeOrder: Record<string, number> = { qualification: 0, semifinal: 1, final: 2 };
+        const aType = typeOrder[a.match_type ?? ''] ?? 0;
+        const bType = typeOrder[b.match_type ?? ''] ?? 0;
+        if (aType !== bType) return aType - bType;
+        return (a.match_number ?? 0) - (b.match_number ?? 0);
+      })
+      .map((m, idx) => {
         const teamAlliance = m.alliances.find(a =>
           a.robot_performances.some(rp => rp.team_id === teamIdNum)
         );
         const rp = teamAlliance?.robot_performances.find(r => r.team_id === teamIdNum);
+        const matchTypeLabel = m.match_type
+          ? m.match_type.charAt(0).toUpperCase() + m.match_type.slice(1)
+          : 'Match';
         return {
+          idx: idx + 1,
           match: m.match_number,
+          matchType: matchTypeLabel,
+          eventName: eventNameMap.get(m.event_id) ?? m.tba_match_key?.split('_')[0] ?? 'Unknown Event',
+          label: `${matchTypeLabel} ${m.match_number ?? m.match_id}`,
+          allianceColor: teamAlliance?.color ?? null,
           allianceScore: teamAlliance?.total_score ?? 0,
           robotContrib: rp?.total_score_contribution ?? 0,
           auto: rp?.auto_score ?? 0,
@@ -241,11 +302,25 @@ export default function TeamProfilePage() {
           endgame: rp?.endgame_score ?? 0,
           won: teamAlliance?.won ?? null,
           matchId: m.match_id,
+          eventId: m.event_id,
         };
       });
-  }, [filteredMatches, teamIdNum]);
+  }, [filteredMatches, teamIdNum, eventNameMap, allEvents]);
 
   const avgLine = stats.avgScore;
+
+  // Compute idx values where a new event starts (for vertical divider lines on charts)
+  const eventBoundaries = useMemo(() => {
+    const boundaries: { idx: number; name: string }[] = [];
+    let lastEventId: number | null = null;
+    chartData.forEach(d => {
+      if (d.eventId !== lastEventId) {
+        if (lastEventId !== null) boundaries.push({ idx: d.idx, name: d.eventName });
+        lastEventId = d.eventId;
+      }
+    });
+    return boundaries;
+  }, [chartData]);
 
   // ── Year breakdown (only for "all years" view) ───────────────────────────
   const yearBreakdown = useMemo(() => {
@@ -410,41 +485,58 @@ export default function TeamProfilePage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {/* Alliance score per match */}
             <div className="bg-app-card border border-app-border rounded-lg p-5">
-              <p className="text-[12px] font-medium text-white mb-4">Alliance score per match</p>
+              <p className="text-[12px] font-medium text-white mb-1">Alliance score per match</p>
+              {eventBoundaries.length > 0 && (
+                <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3">
+                  {[{ idx: 1, name: chartData[0]?.eventName ?? '' }, ...eventBoundaries].map((b, i) => (
+                    <span key={i} className="text-[10px] text-slate-500">
+                      <span className="text-slate-600 font-mono mr-1">{b.idx}–{(eventBoundaries[i]?.idx ?? chartData.length + 1) - 1}</span>
+                      {b.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {eventBoundaries.length === 0 && <div className="mb-4" />}
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={chartData} barSize={18}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                  <XAxis dataKey="match" stroke="#475569" fontSize={11} tickLine={false} />
+                  <XAxis dataKey="idx" stroke="#475569" fontSize={11} tickLine={false} />
                   <YAxis stroke="#475569" fontSize={11} tickLine={false} axisLine={false} />
-                  <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [v ?? 0, 'Score']} />
+                  <Tooltip content={<ChartTooltip />} />
                   <ReferenceLine y={avgLine} stroke="#f59e0b" strokeDasharray="4 2" strokeWidth={1.5} label={{ value: `avg ${avgLine}`, fill: '#f59e0b', fontSize: 10, position: 'right' }} />
-                  <Bar
-                    dataKey="allianceScore"
-                    radius={[4, 4, 0, 0]}
-                    fill="#3b82f6"
-                  />
+                  {eventBoundaries.map(b => (
+                    <ReferenceLine key={b.idx} x={b.idx} stroke="#334155" strokeDasharray="3 3" strokeWidth={1} />
+                  ))}
+                  <Bar dataKey="allianceScore" name="Alliance Score" radius={[4, 4, 0, 0]} fill="#3b82f6" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
             {/* Score trend */}
             <div className="bg-app-card border border-app-border rounded-lg p-5">
-              <p className="text-[12px] font-medium text-white mb-4">Score trend</p>
+              <p className="text-[12px] font-medium text-white mb-1">Score trend</p>
+              {eventBoundaries.length > 0 && (
+                <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3">
+                  {[{ idx: 1, name: chartData[0]?.eventName ?? '' }, ...eventBoundaries].map((b, i) => (
+                    <span key={i} className="text-[10px] text-slate-500">
+                      <span className="text-slate-600 font-mono mr-1">{b.idx}–{(eventBoundaries[i]?.idx ?? chartData.length + 1) - 1}</span>
+                      {b.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {eventBoundaries.length === 0 && <div className="mb-4" />}
               <ResponsiveContainer width="100%" height={220}>
                 <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                  <XAxis dataKey="match" stroke="#475569" fontSize={11} tickLine={false} />
+                  <XAxis dataKey="idx" stroke="#475569" fontSize={11} tickLine={false} />
                   <YAxis stroke="#475569" fontSize={11} tickLine={false} axisLine={false} />
-                  <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [v ?? 0, 'Score']} />
+                  <Tooltip content={<ChartTooltip />} />
                   <ReferenceLine y={avgLine} stroke="#f59e0b" strokeDasharray="4 2" strokeWidth={1.5} />
-                  <Line
-                    type="monotone"
-                    dataKey="allianceScore"
-                    stroke="#10b981"
-                    dot={{ fill: '#10b981', r: 3 }}
-                    strokeWidth={2}
-                    activeDot={{ r: 5 }}
-                  />
+                  {eventBoundaries.map(b => (
+                    <ReferenceLine key={b.idx} x={b.idx} stroke="#334155" strokeDasharray="3 3" strokeWidth={1} />
+                  ))}
+                  <Line type="monotone" dataKey="allianceScore" name="Alliance Score" stroke="#10b981" dot={{ fill: '#10b981', r: 3 }} strokeWidth={2} activeDot={{ r: 5 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -457,9 +549,12 @@ export default function TeamProfilePage() {
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={chartData} barSize={14}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                    <XAxis dataKey="match" stroke="#475569" fontSize={11} tickLine={false} />
+                    <XAxis dataKey="idx" stroke="#475569" fontSize={11} tickLine={false} />
                     <YAxis stroke="#475569" fontSize={11} tickLine={false} axisLine={false} />
-                    <Tooltip {...TOOLTIP_STYLE} />
+                    <Tooltip content={<ChartTooltip />} />
+                    {eventBoundaries.map(b => (
+                      <ReferenceLine key={b.idx} x={b.idx} stroke="#475569" strokeDasharray="3 3" strokeWidth={1} />
+                    ))}
                     <Bar dataKey="auto"    stackId="a" fill="#8b5cf6" radius={[0,0,0,0]} name="Auto" />
                     <Bar dataKey="teleop"  stackId="a" fill="#3b82f6"                   name="Teleop" />
                     <Bar dataKey="endgame" stackId="a" fill="#10b981" radius={[4,4,0,0]} name="Endgame" />

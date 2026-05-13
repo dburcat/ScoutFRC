@@ -33,6 +33,15 @@ COCO_FALLBACK_MAP: dict[int, str] = {
 CONFIDENCE_THRESHOLD = 0.20
 IOU_THRESHOLD = 0.45
 
+# Minimum bounding box size in pixels to filter out small game pieces.
+# FRC robots are large (28"x28") and appear as big boxes in video.
+# 2026 FUEL balls are ~6" diameter — much smaller than robots in frame.
+# At 1920x1080 with typical camera distance, robots are at least 60x60px.
+# Balls appear as ~15-30px circles and should be filtered out.
+MIN_BBOX_WIDTH_PX  = 100   # pixels
+MIN_BBOX_HEIGHT_PX = 100   # pixels
+MAX_DETECTIONS_PER_FRAME = 8  # FRC has 6 robots max, allow 2 extra for tracking
+
 _RED_LOW1  = np.array([0,   120, 70],  dtype=np.uint8)
 _RED_HIGH1 = np.array([10,  255, 255], dtype=np.uint8)
 _RED_LOW2  = np.array([170, 120, 70],  dtype=np.uint8)
@@ -162,6 +171,13 @@ class RobotDetector:
                 continue
 
             bbox: np.ndarray = box.xyxy[0].cpu().numpy()
+            w = float(bbox[2] - bbox[0])
+            h = float(bbox[3] - bbox[1])
+
+            # Filter out small detections (game balls, noise).
+            # Robots are large objects; 2026 FUEL balls are tiny in frame.
+            if w < MIN_BBOX_WIDTH_PX or h < MIN_BBOX_HEIGHT_PX:
+                continue
 
             if self._single_class:
                 class_name = _alliance_from_bumper(frame, bbox)
@@ -173,7 +189,10 @@ class RobotDetector:
                 class_name=class_name,
             ))
 
-        return detections
+        # Cap at MAX_DETECTIONS_PER_FRAME — take highest confidence ones.
+        # FRC has exactly 6 robots; anything beyond 8 is certainly noise.
+        detections.sort(key=lambda d: d.confidence, reverse=True)
+        return detections[:MAX_DETECTIONS_PER_FRAME]
 
     @property
     def is_fine_tuned(self) -> bool:

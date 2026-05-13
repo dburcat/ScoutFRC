@@ -57,7 +57,7 @@ function AppShell() {
       <main className="flex-1 min-w-0 flex flex-col">
         <FRCHeader />
         <Routes>
-          <Route path="/"        element={<DashboardPage />} />
+          <Route path="/dashboard"        element={<DashboardPage />} />
           <Route path="/events"  element={<EventsPage />} />
           <Route path="/teams"   element={<TeamsPage />} />
           <Route path="/teams/:teamId" element={<TeamProfilePage />} />
@@ -71,7 +71,7 @@ function AppShell() {
           <Route path="/scout" element={<MobileScoutPage />} />
           {/* Placeholder routes — built in later tiers */}
           <Route path="/analytics" element={<PlaceholderPage title="Analytics" />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>
 

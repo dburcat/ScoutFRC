@@ -230,19 +230,19 @@ export default function ObservationsPage() {
                       <td className="px-4 py-3">
                         <StarRating rating={obs.rating} />
                       </td>
-                      <td className="px-4 py-3 text-slate-400 max-w-xs hidden md:table-cell">
+                      <td className="px-4 py-3 text-slate-400 hidden md:table-cell" style={{ maxWidth: '220px' }}>
                         {obs.notes ? (
-                          <div className="flex items-center gap-1.5 max-w-[200px]">
-                            <span className="truncate text-slate-400">{obs.notes}</span>
-                            {obs.notes.length > 40 && (
-                              <button
-                                onClick={() => setExpandedNote({ team: String(obs.team_number ?? obs.team_id), note: obs.notes! })}
-                                className="flex-shrink-0 text-[10px] text-brand hover:text-brand/70 underline transition-colors"
-                              >
-                                more
-                              </button>
-                            )}
-                          </div>
+                          obs.notes.length > 40 ? (
+                            <button
+                              onClick={() => setExpandedNote({ team: String(obs.team_number ?? obs.team_id), note: obs.notes! })}
+                              className="flex items-baseline gap-1 text-left w-full group"
+                            >
+                              <span className="truncate text-slate-400 group-hover:text-slate-300 transition-colors block">{obs.notes}</span>
+                              <span className="flex-shrink-0 text-[10px] text-brand group-hover:text-brand/70 underline transition-colors whitespace-nowrap">more</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-400">{obs.notes}</span>
+                          )
                         ) : (
                           <span className="text-slate-700">—</span>
                         )}
